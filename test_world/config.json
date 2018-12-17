@@ -1,0 +1,28 @@
+{
+  "rule": {
+    "game_time": 5000000,
+    "deadlock": true,
+    "goal_area_foul": true,
+    "penalty_area_foul": true
+  },
+  "team_a": {
+    "name": "teamA",
+    "executable": "examples/player_maddpg_py/player_maddpg.py",
+    "datapath": "examples/team_a_data"
+  },
+  "team_b": {
+    "name": "teamB",
+    "executable": "examples/player_skeleton_py/player_skeleton.py",
+    "datapath": "examples/team_b_data"
+  },
+  "commentator": {
+    "name": "commentator",
+    "executable": "",
+    "datapath": "../../examples/commentator_data"
+  },
+  "reporter": {
+    "name": "reporter",
+    "executable": "",
+    "datapath": "../../examples/reporter_data"
+  }
+}
