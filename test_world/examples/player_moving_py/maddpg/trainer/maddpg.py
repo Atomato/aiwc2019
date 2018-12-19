@@ -163,29 +163,27 @@ class MADDPGAgentTrainer(AgentTrainer):
         if not t % 100 == 0:  # only update every 100 steps
             return
 
-        print('update')
-
         self.replay_sample_index = self.replay_buffer.make_index(self.args.batch_size)
         # collect replay sample from all agents
         obs_n = []
         obs_next_n = []
         act_n = []
         index = self.replay_sample_index
-        for i in range(self.n):
-            obs, act, rew, obs_next, done = agents[i].replay_buffer.sample_index(index)
-            obs_n.append(obs)
-            obs_next_n.append(obs_next)
-            act_n.append(act)
+
+        obs, act, rew, obs_next, done = agents[0].replay_buffer.sample_index(index)
+        obs_n.append(obs)
+        obs_next_n.append(obs_next)
+        act_n.append(act)
+
         obs, act, rew, obs_next, done = self.replay_buffer.sample_index(index)
 
         # train q network
-        num_sample = 1
         target_q = 0.0
-        for i in range(num_sample):
-            target_act_next_n = [agents[i].p_debug['target_act'](obs_next_n[i]) for i in range(self.n)]
-            target_q_next = self.q_debug['target_q_values'](*(obs_next_n + target_act_next_n))
-            target_q += rew + self.args.gamma * (1.0 - done) * target_q_next
-        target_q /= num_sample
+
+        target_act_next_n = [agents[0].p_debug['target_act'](obs_next_n[0])]
+        target_q_next = self.q_debug['target_q_values'](*(obs_next_n + target_act_next_n))
+        target_q += rew + self.args.gamma * (1.0 - done) * target_q_next
+
         q_loss = self.q_train(*(obs_n + act_n + [target_q]))
 
         # train p network
