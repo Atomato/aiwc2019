@@ -145,7 +145,7 @@ class MADDPGAgentTrainer(AgentTrainer):
         )
         # Create experience buffer
         self.replay_buffer = ReplayBuffer(1e6)
-        self.min_buffer_size = args.batch_size * args.max_episode_len
+        self.min_buffer_size = args.min_buffer_size
         self.replay_sample_index = None
 
     def action(self, obs):
