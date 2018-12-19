@@ -110,14 +110,13 @@ def q_train(make_obs_ph_n, act_space_n, q_index, q_func, optimizer, grad_norm_cl
         return train, update_target_q, {'q_values': q_values, 'target_q_values': target_q_values}
 
 class MADDPGAgentTrainer(AgentTrainer):
-    def __init__(self, name, model, obs_shape_n, act_space_n, agent_index, args, local_q_func=False):
+    def __init__(self, name, model, state_shape, act_space_n, agent_index, args, local_q_func=False):
         self.name = name
-        self.n = len(obs_shape_n)
+        self.n = 1
         self.agent_index = agent_index
         self.args = args
         obs_ph_n = []
-        for i in range(self.n):
-            obs_ph_n.append(U.BatchInput(obs_shape_n[i], name="observation"+str(i)).get())
+        obs_ph_n.append(U.BatchInput(state_shape, name="observation"+str(0)).get())
 
         # Create all the functions necessary to train the model
         self.q_train, self.q_update, self.q_debug = q_train(

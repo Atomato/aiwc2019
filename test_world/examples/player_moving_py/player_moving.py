@@ -94,10 +94,10 @@ class Component(ApplicationSession):
             self.action_dim = 2 # 2                    
             
             self.arglist = Argument()
-            self.obs_shape_n = [(self.state_dim * self.history_size,) for _ in range(1)] # state dimenstion
-            self.action_space = [Discrete(self.action_dim * 2 + 1) for _ in range(1)]
+            self.state_shape = (self.state_dim * self.history_size,) # state dimension
+            self.act_space = [Discrete(self.action_dim * 2 + 1)]
             self.trainers = MADDPGAgentTrainer(
-                "agent_%d" % 0, self.mlp_model, self.obs_shape_n, self.action_space, 0, self.arglist,
+                'agent_moving', self.mlp_model, self.state_shape, self.act_space, 0, self.arglist,
                 local_q_func=False)
 
             # for tensorboard
