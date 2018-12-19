@@ -88,7 +88,6 @@ class Component(ApplicationSession):
             self.end_of_frame = False
             self.cur_my_posture = []
             self.cur_ball = []
-            self.pre_ball = [0, 0]
 
             self.state_dim = 2 # relative ball
             self.history_size = 2 # frame history size
@@ -97,7 +96,9 @@ class Component(ApplicationSession):
             self.arglist = Argument()
             self.obs_shape_n = [(self.state_dim * self.history_size,) for _ in range(1)] # state dimenstion
             self.action_space = [Discrete(self.action_dim * 2 + 1) for _ in range(1)]
-            self.trainers = self.get_trainers(1, self.obs_shape_n, self.action_space, self.arglist)
+            self.trainers = MADDPGAgentTrainer(
+                "agent_%d" % 0, self.mlp_model, self.obs_shape_n, self.action_space, 0, self.arglist,
+                local_q_func=False)
 
             # for tensorboard
             # self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
@@ -108,20 +109,17 @@ class Component(ApplicationSession):
             # Load previous results, if necessary
             if self.arglist.load_dir == "":
                 self.arglist.load_dir = self.arglist.save_dir
-            if self.arglist.display or self.arglist.restore or self.arglist.benchmark:
+            if self.arglist.restore:
                 print('Loading previous state...')
                 U.load_state(self.arglist.load_dir)
 
             self.episode_rewards = [0.0]  # sum of rewards for all agents
             self.agent_rewards = [[0.0] for _ in range(self.number_of_robots)]  # individual agent reward
-            self.final_ep_rewards = []  # sum of rewards for training curve
-            self.final_ep_ag_rewards = []  # agent rewards for training curve
-            self.agent_info = [[[]]]  # placeholder for benchmarking info
             self.saver = tf.train.Saver()
-            self.obs_n = [np.zeros([self.state_dim * self.history_size]) for _ in range(self.number_of_robots)] # histories
+            self.state = np.zeros([self.state_dim * self.history_size]) # histories
             self.train_step = 0
             self.wheels = np.zeros(self.number_of_robots*2)
-            self.action_n = [np.zeros(self.action_dim * 2 + 1) for _ in range(self.number_of_robots)] # not np.zeros(2)
+            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
                    
             self.save_every_steps = 12000 # save the model every 10 minutes
             self.stats_steps = 6000 # for tensorboard
@@ -129,9 +127,11 @@ class Component(ApplicationSession):
             self.score_sum = 0 
             self.active_flag = [[False for _ in range(5)], [False for _ in range(5)]]   
             self.inner_step = 0
+
+            self.done = False
+            self.control_idx = 0
             return
-##############################################################################
-            
+##############################################################################        
         try:
             info = yield self.call(u'aiwc.get_info', args.key)
         except Exception as e:
@@ -159,17 +159,6 @@ class Component(ApplicationSession):
             out = layers.fully_connected(out, num_outputs=num_units, activation_fn=tf.nn.relu)
             out = layers.fully_connected(out, num_outputs=num_outputs, activation_fn=None)
             return out
-
-    def get_trainers(self, num_agent, obs_shape_n, action_space, arglist):
-        trainers = []
-        model = self.mlp_model
-        trainer = MADDPGAgentTrainer
-
-        for i in range(num_agent):
-            trainers.append(trainer(
-                "agent_%d" % i, model, obs_shape_n, action_space, i, arglist,
-                local_q_func=(arglist.good_policy=='ddpg')))
-        return trainers
 
     # make summary operators for tensorboard
     def setup_summary(self):
@@ -205,7 +194,7 @@ class Component(ApplicationSession):
     def get_reward(self, reset_reason, i):
         dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my_posture[i][X], 
             self.cur_ball[Y], self.cur_my_posture[i][Y])
-        self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
+        # self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
 
         touch_rew = 0
         if self.cur_my_posture[i][TOUCH]:
@@ -213,13 +202,20 @@ class Component(ApplicationSession):
 
         rew = dist_rew + touch_rew
 
-        self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
+        # self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
         return rew      
 
     def pre_processing(self, i):
         relative_ball = helper.rot_transform(self.cur_my_posture[i][X], 
             self.cur_my_posture[i][Y], -self.cur_my_posture[i][TH], 
             self.cur_ball[X], self.cur_ball[Y])
+        print('relative_ball before', relative_ball)
+
+        dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
+        if dist > 0.5:
+            relative_ball[X] *= 0.5/dist
+            relative_ball[Y] *= 0.5/dist
+        print('relative_ball after', relative_ball)
 
         return np.array(relative_ball)
 
@@ -269,65 +265,52 @@ class Component(ApplicationSession):
             self.get_coord(received_frame)
 ##############################################################################
             # Next state, Reward, Reset
-            # new_obs_n = [np.zeros([self.state_dim * self.history_size]) for _ in range(self.number_of_robots)]
-            new_obs_n = []
-            rew_n = []
-            done_n = []
-            for i in range(self.number_of_robots):
-                next_state = self.pre_processing(i)
-                # self.printConsole(next_state)
-                # new_obs_n[i] = np.append(next_state, next_state - self.obs_n[i][:-self.state_dim]) # position and velocity
-                new_obs_n.append(np.append(next_state, self.obs_n[i][:-self.state_dim])) # position and velocity
-                # self.printConsole('observation ' + str(i) + ': '+ str(new_obs_n[i]))
+            if self.done:
+                self.control_idx += 1
+                self.control_idx %= 5
 
-                rew_n.append(self.get_reward(received_frame.reset_reason, i))
+            # Next state
+            next_obs = self.pre_processing(self.control_idx)
+            if self.done:
+                next_state = np.append(next_obs, next_obs) # 2 frames position stack
+                self.done = False
+            else:
+                next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
 
-                if(received_frame.reset_reason != NONE):
-                    done_n.append(True)
-                else:
-                    done_n.append(False)
-            done = all(done_n)
-            if done:
+            # Reward
+            reward = self.get_reward(received_frame.reset_reason, self.control_idx)
+
+            # Reset
+            if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
+                self.done = True
                 self.printConsole("reset reason: " + str(received_frame.reset_reason))
+            else:
+                self.done = False
 
-            # self.printConsole('reward: ' + str(rew_n[0]))
-            # rew_n = [sum(rew_n) for i in range(self.number_of_robots)]
+            if not self.cur_my_posture[self.control_idx][ACTIVE]:
+                self.printConsole('robot ' + str(self.control_idx) + ' is not active')
+            else:
+                self.trainers.experience(self.state, self.action, reward, next_state, self.done, False)
 
-            # for i, agent in enumerate(self.trainers):
-            #     agent.experience(self.obs_n[i], self.action_n[i], rew_n[i], new_obs_n[i], done_n[i], False)
-            for i in range(self.number_of_robots):
-                if not self.cur_my_posture[i][ACTIVE]:
-                    self.printConsole('robot ' + str(i) + ' is not active')
-                    continue
-                self.trainers[0].experience(self.obs_n[i], self.action_n[i], rew_n[i], new_obs_n[i], done_n[i], False)
-
-            self.obs_n = new_obs_n
-
-            self.reward_sum += rew_n
+            self.state = next_state
 
             # increment global step counter
             self.train_step += 1
 
-            # update all trainers
-            loss = None
-            for agent in self.trainers:
-                agent.preupdate()
-            for agent in self.trainers:
-                loss = agent.update(self.trainers, self.train_step)
+            # update 
+            self.trainers.preupdate()
+            loss = self.trainers.update([self.trainers], self.train_step)
 
             # get action
-            # self.action_n = [agent.action(obs) for agent, obs in zip(self.trainers,self.obs_n)]
-            self.action_n = [self.trainers[0].action(obs) for obs in self.obs_n]
-            # self.printConsole("original action: " + str(self.action_n[0]))
+            self.action = self.trainers.action(self.state)
 
-            for i in range(self.number_of_robots):
-                self.wheels[2*i] = self.max_linear_velocity * (self.action_n[i][1]-self.action_n[i][2]+self.action_n[i][3]-self.action_n[i][4])
-                self.wheels[2*i + 1] = self.max_linear_velocity * (self.action_n[i][1]-self.action_n[i][2]-self.action_n[i][3]+self.action_n[i][4])
+            self.wheels = np.zeros(self.number_of_robots*2)
+            self.wheels[2*self.control_idx] = self.max_linear_velocity * (self.action[1]-self.action[2]+self.action[3]-self.action[4])
+            self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * (self.action[1]-self.action[2]-self.action[3]+self.action[4])
 
             # self.printConsole("                 action: " + str(self.wheels[:2]))
             self.printConsole('step: ' + str(self.train_step))
 
-            self.pre_ball = self.cur_ball
             set_wheel(self, self.wheels.tolist())
 ##############################################################################
             # if (self.train_step % self.save_every_steps) == 0:
@@ -344,7 +327,7 @@ class Component(ApplicationSession):
                 # summary_str = U.get_session().run(self.summary_op)
                 # self.summary_writer.add_summary(summary_str, self.inner_step)
 
-                self.reward_sum = np.zeros(len(self.reward_sum))
+                # self.reward_sum = np.zeros(len(self.reward_sum))
                 self.score_sum = 0
                 self.inner_step += 1            
 ##############################################################################
