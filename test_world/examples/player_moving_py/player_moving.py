@@ -115,7 +115,9 @@ class Component(ApplicationSession):
 
             self.episode_rewards = [0.0]  # sum of rewards for all agents
             self.agent_rewards = [[0.0] for _ in range(self.number_of_robots)]  # individual agent reward
+
             self.saver = tf.train.Saver()
+
             self.state = np.zeros([self.state_dim * self.history_size]) # histories
             self.train_step = 0
             self.wheels = np.zeros(self.number_of_robots*2)
@@ -189,35 +191,93 @@ class Component(ApplicationSession):
 ##############################################################################    
     def get_coord(self, received_frame):
         self.cur_ball = received_frame.coordinates[BALL]
-        self.cur_my_posture = received_frame.coordinates[MY_TEAM]
+        self.cur_my_posture = received_frame.coordinates[MY_TEAM]                
 
     def get_reward(self, reset_reason, i):
         dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my_posture[i][X], 
             self.cur_ball[Y], self.cur_my_posture[i][Y])
-        # self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
+        self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
 
         touch_rew = 0
         if self.cur_my_posture[i][TOUCH]:
-            touch_rew += 20
+            touch_rew += 10
 
         rew = dist_rew + touch_rew
 
-        # self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
+        self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
         return rew      
 
     def pre_processing(self, i):
         relative_ball = helper.rot_transform(self.cur_my_posture[i][X], 
             self.cur_my_posture[i][Y], -self.cur_my_posture[i][TH], 
             self.cur_ball[X], self.cur_ball[Y])
-        print('relative_ball before', relative_ball)
 
         dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
         if dist > 0.5:
             relative_ball[X] *= 0.5/dist
             relative_ball[Y] *= 0.5/dist
-        print('relative_ball after', relative_ball)
 
         return np.array(relative_ball)
+##############################################################################
+    # function for heuristic moving
+    def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
+        multiplier = 1
+        
+        if(abs(left_wheel) > self.max_linear_velocity or abs(right_wheel) > self.max_linear_velocity):
+            if (abs(left_wheel) > abs(right_wheel)):
+                multiplier = self.max_linear_velocity / abs(left_wheel)
+            else:
+                multiplier = self.max_linear_velocity / abs(right_wheel)
+        
+        self.wheels[2*robot_id] = left_wheel*multiplier
+        self.wheels[2*robot_id + 1] = right_wheel*multiplier
+
+    def position(self, robot_id, x, y):
+        damping = 0.35
+        mult_lin = 3.5
+        mult_ang = 0.4
+        ka = 0
+        sign = 1
+        
+        dx = x - self.cur_my_posture[robot_id][X]
+        dy = y - self.cur_my_posture[robot_id][Y]
+        d_e = math.sqrt(math.pow(dx, 2) + math.pow(dy, 2))
+        desired_th = (math.pi/2) if (dx == 0 and dy == 0) else math.atan2(dy, dx)
+
+        d_th = desired_th - self.cur_my_posture[robot_id][TH] 
+        while(d_th > math.pi):
+            d_th -= 2*math.pi
+        while(d_th < -math.pi):
+            d_th += 2*math.pi
+            
+        if (d_e > 1):
+            ka = 17/90
+        elif (d_e > 0.5):
+            ka = 19/90
+        elif (d_e > 0.3):
+            ka = 21/90
+        elif (d_e > 0.2):
+            ka = 23/90
+        else:
+            ka = 25/90
+            
+        if (d_th > helper.degree2radian(95)):
+            d_th -= math.pi
+            sign = -1
+        elif (d_th < helper.degree2radian(-95)):
+            d_th += math.pi
+            sign = -1
+            
+        if (abs(d_th) > helper.degree2radian(85)):
+            self.set_wheel_velocity(robot_id, -mult_ang*d_th, mult_ang*d_th)
+        else:
+            if (d_e < 5 and abs(d_th) < helper.degree2radian(40)):
+                ka = 0.1
+            ka *= 4
+            self.set_wheel_velocity(robot_id, 
+                                    sign * (mult_lin * (1 / (1 + math.exp(-3*d_e)) - damping) - mult_ang * ka * d_th),
+                                    sign * (mult_lin * (1 / (1 + math.exp(-3*d_e)) - damping) + mult_ang * ka * d_th))
+##############################################################################
 
     @inlineCallbacks
     def on_event(self, f):        
