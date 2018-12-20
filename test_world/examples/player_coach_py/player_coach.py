@@ -13,6 +13,7 @@ from autobahn.wamp.serializer import MsgPackSerializer
 from autobahn.wamp.types import ComponentConfig
 from autobahn.twisted.wamp import ApplicationSession, ApplicationRunner
 
+import argparse
 import sys
 import numpy as np
 
@@ -75,15 +76,17 @@ class Component(ApplicationSession):
             self.cur_ball = []
 
             self.state_dim = 2 # relative ball
-            self.action_dim = 2 # 2                    
+            self.action_dim = 2 # 2
 
-            self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
-            self.wheels = np.zeros(self.number_of_robots*2)
+            # self.coach_agent = DQNAgent()
+
+            # self.state = np.zeros([self.state_dim * self.history_size]) # histories
+            # self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
+            # self.wheels = np.zeros(self.number_of_robots*2)
 
             self.train_step = 0
             return
-##############################################################################        
+##############################################################################
         try:
             info = yield self.call(u'aiwc.get_info', args.key)
         except Exception as e:
@@ -102,7 +105,7 @@ class Component(ApplicationSession):
             self.printConsole("Error: {}".format(e))
         else:
             self.printConsole("I am ready for the game!")
-##############################################################################    
+##############################################################################
     def get_coord(self, received_frame):
         self.cur_ball = received_frame.coordinates[BALL]
         self.cur_my_posture = received_frame.coordinates[MY_TEAM]                
@@ -234,20 +237,20 @@ class Component(ApplicationSession):
             # Reset
 
             # update 
-            self.trainers.preupdate()
-            loss = self.trainers.update([self.trainers], self.train_step)
+            # self.trainers.preupdate()
+            # loss = self.trainers.update([self.trainers], self.train_step)
 
-            self.state = next_state
+            # self.state = next_state
 
             # increment global step counter
             self.train_step += 1
 
             # get action
-            self.action = self.trainers.action(self.state)
+            # self.action = self.trainers.action(self.state)
 
             self.printConsole('step: ' + str(self.train_step))
 
-            set_wheel(self, self.wheels.tolist())         
+            # set_wheel(self, self.wheels.tolist())         
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
