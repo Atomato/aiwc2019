@@ -87,6 +87,8 @@ class Component(ApplicationSession):
             self.wheels = np.zeros(self.number_of_robots*2)
 
             self.dlck_cnt = 0 # deadlock count
+            # how many times avoid deadlock function was called
+            self.avoid_dlck_cnt = 0 
             return
 ##############################################################################
         try:
@@ -124,12 +126,14 @@ class Component(ApplicationSession):
         # delta of ball
         delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
                                     self.cur_ball[Y], self.prev_ball[Y])
+        self.printConsole("boal delta: " + str(delta_b))
 
         if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
-            self.deadlock_cnt += 1
+            self.printConsole("boal stop")
+            self.dlck_cnt += 1
         else:
-            self.deadlock_cnt = 0
-            self.avoid_deadlock_cnt = 0
+            self.dlck_cnt = 0
+            self.avoid_dlck_cnt = 0
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
@@ -198,46 +202,43 @@ class Component(ApplicationSession):
             yield self.call(u'aiwc.set_speed', args.key, robot_wheels)
             return
 
-        # def avoid_deadlock(self):
-        #     self.position(0, self.cur_ball[X], 0)
-        #     self.position(1, self.cur_ball[X], 0)
-        #     self.position(2, self.cur_ball[X], 0)
-        #     self.position(3, self.cur_ball[X], 0)
-        #     self.position(4, self.cur_ball[X], 0)
+        def avoid_deadlock(self):
+            self.position(0, self.cur_ball[X], 0)
+            self.position(1, self.cur_ball[X], 0)
+            self.position(2, self.cur_ball[X], 0)
+            self.position(3, self.cur_ball[X], 0)
+            self.position(4, self.cur_ball[X], 0)
 
-        #     if (self.ball_dist[MY_TEAM][self.idxs[MY_TEAM][0]] > 0.13) or (self.avoid_deadlock_cnt > 20):
-        #         # self.printConsole("                                                             return to the ball")
-        #         midfielder(self, self.idxs[MY_TEAM][0])
-        #         chase(self, self.idxs[MY_TEAM][1], self.cur_my_posture[self.idxs[MY_TEAM][0]][X], self.cur_my_posture[self.idxs[MY_TEAM][0]][Y])
-        #         chase(self, self.idxs[MY_TEAM][2], self.cur_my_posture[self.idxs[MY_TEAM][1]][X], self.cur_my_posture[self.idxs[MY_TEAM][1]][Y])
-        #         chase(self, self.idxs[MY_TEAM][3], self.cur_my_posture[self.idxs[MY_TEAM][2]][X], self.cur_my_posture[self.idxs[MY_TEAM][2]][Y])
-        #         chase(self, self.idxs[MY_TEAM][4], self.cur_my_posture[self.idxs[MY_TEAM][3]][X], self.cur_my_posture[self.idxs[MY_TEAM][3]][Y])          
+            # if closest ball is somhow away from the ball
+            # or avoided deadlock to some extent
+            if (self.dist_ball[self.idxs[0]] > 0.13) or (self.avoid_dlck_cnt > 20):
+                offense(self)
 
-        # def midfielder(self, robot_id):
-        #     goal_dist = helper.distance(self.cur_my[robot_id][X], self.field[X]/2,
-        #                                  self.cur_my[robot_id][Y], 0)
-        #     shoot_mul = 1
-        #     dribble_dist = 0.426
-        #     v = 5
-        #     goal_to_ball_unit = helper.unit([self.field[X]/2 - self.cur_ball[X],
-        #                                                     - self.cur_ball[Y]])
-        #     delta = [self.cur_ball[X] - self.cur_my[robot_id][X],
-        #             self.cur_ball[Y] - self.cur_my[robot_id][Y]]
+        def midfielder(self, robot_id):
+            goal_dist = helper.distance(self.cur_my[robot_id][X], self.field[X]/2,
+                                         self.cur_my[robot_id][Y], 0)
+            shoot_mul = 1
+            dribble_dist = 0.426
+            v = 5
+            goal_to_ball_unit = helper.unit([self.field[X]/2 - self.cur_ball[X],
+                                                            - self.cur_ball[Y]])
+            delta = [self.cur_ball[X] - self.cur_my[robot_id][X],
+                    self.cur_ball[Y] - self.cur_my[robot_id][Y]]
 
-        #     if (self.distances[MY_TEAM][robot_id] < 0.5) and (delta[X] > 0):
-        #         self.position(robot_id, self.cur_ball[X] + v*delta[X], 
-        #                                 self.cur_ball[Y] + v*delta[Y])                   
-        #     else:
-        #         self.position(robot_id, 
-        #             self.cur_ball[X] - dribble_dist*goal_to_ball_unit[X], 
-        #             self.cur_ball[Y] - dribble_dist*goal_to_ball_unit[Y])
+            if (self.dist_ball[robot_id] < 0.5) and (delta[X] > 0):
+                self.position(robot_id, self.cur_ball[X] + v*delta[X], 
+                                        self.cur_ball[Y] + v*delta[Y])                   
+            else:
+                self.position(robot_id, 
+                    self.cur_ball[X] - dribble_dist*goal_to_ball_unit[X], 
+                    self.cur_ball[Y] - dribble_dist*goal_to_ball_unit[Y])
 
-        # def offense(self):
-        #     midfielder(self, 0)
-        #     midfielder(self, 1)
-        #     midfielder(self, 2)
-        #     midfielder(self, 3)
-        #     midfielder(self, 4)
+        def offense(self):
+            midfielder(self, 0)
+            midfielder(self, 1)
+            midfielder(self, 2)
+            midfielder(self, 3)
+            midfielder(self, 4)
 
             
         # initiate empty frame
@@ -281,13 +282,13 @@ class Component(ApplicationSession):
             self.idxs  = self.get_idxs()
 
             if self.dlck_cnt > 15:
-                # avoid_deadlock()
-                pass
+                avoid_deadlock(self)
+                self.avoid_dlck_cnt += 1
             else:
-                # offense(self)
+                offense(self)
                 pass
 
-            self.cur_ball = self.prev_ball
+            self.prev_ball = self.cur_ball
             set_wheel(self, self.wheels.tolist())         
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
