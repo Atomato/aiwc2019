@@ -23,3 +23,9 @@ def rot_transform(x_center, y_center, theta, x, y):
 	x_new = (x-x_center)*math.cos(theta) - (y-y_center)*math.sin(theta)
 	y_new = (x-x_center)*math.sin(theta) + (y-y_center)*math.cos(theta)
 	return [x_new, y_new]
+
+def unit(vector):
+	x, y = vector
+	mag = distance(0, x, 0, y)
+	u, v = x/mag, y/mag
+	return u, v	

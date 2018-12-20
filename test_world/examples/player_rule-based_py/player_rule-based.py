@@ -15,6 +15,7 @@ from autobahn.twisted.wamp import ApplicationSession, ApplicationRunner
 import argparse
 import sys
 import numpy as np
+import math
 
 import helper
 
@@ -73,8 +74,19 @@ class Component(ApplicationSession):
             self.end_of_frame = False
 
             # my team info, 5 robots, (x,y,th,active,touch)
-            self.cur_my = np.zeros((5,5)) 
+            self.cur_my = np.zeros((self.number_of_robots,5)) 
+
             self.cur_ball = np.zeros(2) # ball (x,y) position
+            self.prev_ball = np.zeros(2) # previous ball (x,y) position
+
+            # distance to the ball
+            self.dist_ball = np.zeros(self.number_of_robots)
+            # index for which robot is close to the ball
+            self.idxs = [i for i in range(self.number_of_robots)]
+
+            self.wheels = np.zeros(self.number_of_robots*2)
+
+            self.dlck_cnt = 0 # deadlock count
             return
 ##############################################################################
         try:
@@ -100,17 +112,24 @@ class Component(ApplicationSession):
         self.cur_ball = np.array(received_frame.coordinates[BALL])
         self.cur_my = np.array(received_frame.coordinates[MY_TEAM])
 
-    # def count_deadlock(self):
-    #     # delta of ball
-    #     delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
-    #                                 self.cur_ball[Y], self.prev_ball[Y])
-    #     #self.printConsole("boal delta: " + str(d_ball))
-    #     if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
-    #         #self.printConsole("boal stop")
-    #         self.deadlock_cnt += 1
-    #     else:
-    #         self.deadlock_cnt = 0
-    #         self.avoid_deadlock_cnt = 0    
+    def get_idxs(self):
+        # sort according to distant to the ball
+        for i in range(self.number_of_robots):
+            self.dist_ball[i] = helper.distance(self.cur_ball[X], self.cur_my[i][X], 
+                                                self.cur_ball[Y], self.cur_my[i][Y])
+        idxs = sorted(range(len(self.dist_ball)), key=lambda k: self.dist_ball[k])
+        return idxs
+
+    def count_deadlock(self):
+        # delta of ball
+        delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
+                                    self.cur_ball[Y], self.prev_ball[Y])
+
+        if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
+            self.deadlock_cnt += 1
+        else:
+            self.deadlock_cnt = 0
+            self.avoid_deadlock_cnt = 0
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
@@ -178,6 +197,48 @@ class Component(ApplicationSession):
         def set_wheel(self, robot_wheels):
             yield self.call(u'aiwc.set_speed', args.key, robot_wheels)
             return
+
+        # def avoid_deadlock(self):
+        #     self.position(0, self.cur_ball[X], 0)
+        #     self.position(1, self.cur_ball[X], 0)
+        #     self.position(2, self.cur_ball[X], 0)
+        #     self.position(3, self.cur_ball[X], 0)
+        #     self.position(4, self.cur_ball[X], 0)
+
+        #     if (self.ball_dist[MY_TEAM][self.idxs[MY_TEAM][0]] > 0.13) or (self.avoid_deadlock_cnt > 20):
+        #         # self.printConsole("                                                             return to the ball")
+        #         midfielder(self, self.idxs[MY_TEAM][0])
+        #         chase(self, self.idxs[MY_TEAM][1], self.cur_my_posture[self.idxs[MY_TEAM][0]][X], self.cur_my_posture[self.idxs[MY_TEAM][0]][Y])
+        #         chase(self, self.idxs[MY_TEAM][2], self.cur_my_posture[self.idxs[MY_TEAM][1]][X], self.cur_my_posture[self.idxs[MY_TEAM][1]][Y])
+        #         chase(self, self.idxs[MY_TEAM][3], self.cur_my_posture[self.idxs[MY_TEAM][2]][X], self.cur_my_posture[self.idxs[MY_TEAM][2]][Y])
+        #         chase(self, self.idxs[MY_TEAM][4], self.cur_my_posture[self.idxs[MY_TEAM][3]][X], self.cur_my_posture[self.idxs[MY_TEAM][3]][Y])          
+
+        # def midfielder(self, robot_id):
+        #     goal_dist = helper.distance(self.cur_my[robot_id][X], self.field[X]/2,
+        #                                  self.cur_my[robot_id][Y], 0)
+        #     shoot_mul = 1
+        #     dribble_dist = 0.426
+        #     v = 5
+        #     goal_to_ball_unit = helper.unit([self.field[X]/2 - self.cur_ball[X],
+        #                                                     - self.cur_ball[Y]])
+        #     delta = [self.cur_ball[X] - self.cur_my[robot_id][X],
+        #             self.cur_ball[Y] - self.cur_my[robot_id][Y]]
+
+        #     if (self.distances[MY_TEAM][robot_id] < 0.5) and (delta[X] > 0):
+        #         self.position(robot_id, self.cur_ball[X] + v*delta[X], 
+        #                                 self.cur_ball[Y] + v*delta[Y])                   
+        #     else:
+        #         self.position(robot_id, 
+        #             self.cur_ball[X] - dribble_dist*goal_to_ball_unit[X], 
+        #             self.cur_ball[Y] - dribble_dist*goal_to_ball_unit[Y])
+
+        # def offense(self):
+        #     midfielder(self, 0)
+        #     midfielder(self, 1)
+        #     midfielder(self, 2)
+        #     midfielder(self, 3)
+        #     midfielder(self, 4)
+
             
         # initiate empty frame
         received_frame = Frame()
@@ -216,8 +277,18 @@ class Component(ApplicationSession):
                                                
             self.get_coord(received_frame)
 ##############################################################################
+            self.count_deadlock()
+            self.idxs  = self.get_idxs()
 
-            # set_wheel(self, self.wheels.tolist())         
+            if self.dlck_cnt > 15:
+                # avoid_deadlock()
+                pass
+            else:
+                # offense(self)
+                pass
+
+            self.cur_ball = self.prev_ball
+            set_wheel(self, self.wheels.tolist())         
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
