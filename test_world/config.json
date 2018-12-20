@@ -7,7 +7,7 @@
   },
   "team_a": {
     "name": "teamA",
-    "executable": "examples/player_coach_py/player_coach.py",
+    "executable": "examples/player_rule-based_py/player_rule-based.py",
     "datapath": "examples/team_a_data"
   },
   "team_b": {

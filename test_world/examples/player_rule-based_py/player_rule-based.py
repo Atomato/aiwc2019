@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 
 # keunhyung 12/20
-# train coach using DQN
-# rule-based robot players
+# rule-based player
 
 from __future__ import print_function
 
@@ -72,19 +71,8 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-            self.cur_my_posture = []
-            self.cur_ball = []
-
-            self.state_dim = 2 # relative ball
-            self.action_dim = 2 # 2
-
-            # self.coach_agent = DQNAgent()
-
-            # self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            # self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
-            # self.wheels = np.zeros(self.number_of_robots*2)
-
-            self.train_step = 0
+            self.cur_my = []
+            self.cur_ball = np.zeros(2) # (x,y) position
             return
 ##############################################################################
         try:
@@ -107,22 +95,20 @@ class Component(ApplicationSession):
             self.printConsole("I am ready for the game!")
 ##############################################################################
     def get_coord(self, received_frame):
-        self.cur_ball = received_frame.coordinates[BALL]
-        self.cur_my_posture = received_frame.coordinates[MY_TEAM]                
+        self.cur_ball = np.array(received_frame.coordinates[BALL])
+        self.cur_my = received_frame.coordinates[MY_TEAM]
 
-    def get_reward(self, reset_reason, i):
-        dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my_posture[i][X], 
-            self.cur_ball[Y], self.cur_my_posture[i][Y])
-        self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
-
-        touch_rew = 0
-        if self.cur_my_posture[i][TOUCH]:
-            touch_rew += 10
-
-        rew = dist_rew + touch_rew
-
-        self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
-        return rew      
+    # def count_deadlock(self):
+    #     # delta of ball
+    #     delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
+    #                                 self.cur_ball[Y], self.prev_ball[Y])
+    #     #self.printConsole("boal delta: " + str(d_ball))
+    #     if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
+    #         #self.printConsole("boal stop")
+    #         self.deadlock_cnt += 1
+    #     else:
+    #         self.deadlock_cnt = 0
+    #         self.avoid_deadlock_cnt = 0    
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
@@ -144,12 +130,12 @@ class Component(ApplicationSession):
         ka = 0
         sign = 1
         
-        dx = x - self.cur_my_posture[robot_id][X]
-        dy = y - self.cur_my_posture[robot_id][Y]
+        dx = x - self.cur_my[robot_id][X]
+        dy = y - self.cur_my[robot_id][Y]
         d_e = math.sqrt(math.pow(dx, 2) + math.pow(dy, 2))
         desired_th = (math.pi/2) if (dx == 0 and dy == 0) else math.atan2(dy, dx)
 
-        d_th = desired_th - self.cur_my_posture[robot_id][TH] 
+        d_th = desired_th - self.cur_my[robot_id][TH] 
         while(d_th > math.pi):
             d_th -= 2*math.pi
         while(d_th < -math.pi):
@@ -228,27 +214,7 @@ class Component(ApplicationSession):
                                                
             self.get_coord(received_frame)
 ##############################################################################
-            # Next state, Reward, Reset
 
-            # Next state
-
-            # Reward
-
-            # Reset
-
-            # update 
-            # self.trainers.preupdate()
-            # loss = self.trainers.update([self.trainers], self.train_step)
-
-            # self.state = next_state
-
-            # increment global step counter
-            self.train_step += 1
-
-            # get action
-            # self.action = self.trainers.action(self.state)
-
-            self.printConsole('step: ' + str(self.train_step))
 
             # set_wheel(self, self.wheels.tolist())         
 ##############################################################################
