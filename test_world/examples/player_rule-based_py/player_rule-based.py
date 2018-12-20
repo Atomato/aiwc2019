@@ -122,14 +122,26 @@ class Component(ApplicationSession):
         idxs = sorted(range(len(self.dist_ball)), key=lambda k: self.dist_ball[k])
         return idxs
 
+    def count_goal_area(self):
+        cnt = 0
+        for i in range(self.number_of_robots):
+            if (abs(self.cur_my[i][X]) > 1.6) and (abs(self.cur_my[i][Y]) < 0.43):
+                cnt += 1
+        return cnt
+
+    def count_penalty_area(self):
+        cnt = 0
+        for i in range(self.number_of_robots):
+            if (abs(self.cur_my[i][X]) > 1.3) and (abs(self.cur_my[i][Y]) < 0.7):
+                cnt += 1
+        return cnt        
+
     def count_deadlock(self):
         # delta of ball
         delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
                                     self.cur_ball[Y], self.prev_ball[Y])
-        self.printConsole("boal delta: " + str(delta_b))
 
         if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
-            self.printConsole("boal stop")
             self.dlck_cnt += 1
         else:
             self.dlck_cnt = 0
@@ -202,6 +214,20 @@ class Component(ApplicationSession):
             yield self.call(u'aiwc.set_speed', args.key, robot_wheels)
             return
 
+        def avoid_goal_foul(self):
+            midfielder(self, self.idxs[0])
+            midfielder(self, self.idxs[1])
+            self.position(self.idxs[2], 0, 0)
+            self.position(self.idxs[3], 0, 0)
+            self.position(self.idxs[4], 0, 0)
+
+        def avoid_penalty_foul(self):
+            midfielder(self, self.idxs[0])
+            midfielder(self, self.idxs[1])
+            midfielder(self, self.idxs[2])
+            self.position(self.idxs[3], 0, 0)
+            self.position(self.idxs[4], 0, 0)            
+
         def avoid_deadlock(self):
             self.position(0, self.cur_ball[X], 0)
             self.position(1, self.cur_ball[X], 0)
@@ -239,7 +265,6 @@ class Component(ApplicationSession):
             midfielder(self, 2)
             midfielder(self, 3)
             midfielder(self, 4)
-
             
         # initiate empty frame
         received_frame = Frame()
@@ -278,10 +303,19 @@ class Component(ApplicationSession):
                                                
             self.get_coord(received_frame)
 ##############################################################################
-            self.count_deadlock()
             self.idxs  = self.get_idxs()
 
-            if self.dlck_cnt > 15:
+            # count how many robots is in the goal area
+            goal_area_cnt = self.count_goal_area()
+            # count how many robots is in the penalty area
+            penalty_area_cnt = self.count_penalty_area()
+            self.count_deadlock()
+
+            if goal_area_cnt > 2:
+                avoid_goal_foul(self)
+            if penalty_area_cnt > 3:
+                avoid_penalty_foul(self)
+            elif self.dlck_cnt > 15:
                 avoid_deadlock(self)
                 self.avoid_dlck_cnt += 1
             else:
