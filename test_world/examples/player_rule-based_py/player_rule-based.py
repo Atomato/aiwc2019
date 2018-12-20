@@ -71,8 +71,10 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-            self.cur_my = []
-            self.cur_ball = np.zeros(2) # (x,y) position
+
+            # my team info, 5 robots, (x,y,th,active,touch)
+            self.cur_my = np.zeros((5,5)) 
+            self.cur_ball = np.zeros(2) # ball (x,y) position
             return
 ##############################################################################
         try:
@@ -96,7 +98,7 @@ class Component(ApplicationSession):
 ##############################################################################
     def get_coord(self, received_frame):
         self.cur_ball = np.array(received_frame.coordinates[BALL])
-        self.cur_my = received_frame.coordinates[MY_TEAM]
+        self.cur_my = np.array(received_frame.coordinates[MY_TEAM])
 
     # def count_deadlock(self):
     #     # delta of ball
@@ -214,7 +216,6 @@ class Component(ApplicationSession):
                                                
             self.get_coord(received_frame)
 ##############################################################################
-
 
             # set_wheel(self, self.wheels.tolist())         
 ##############################################################################
