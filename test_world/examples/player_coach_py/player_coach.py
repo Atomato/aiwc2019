@@ -74,18 +74,28 @@ class Component(ApplicationSession):
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
 
-            # my team info, 5 robots, (x,y,th,active,touch)
-            self.cur_my = np.zeros((self.number_of_robots,5)) 
+            ##################################################################
+            # team info, 5 robots, (x,y,th,active,touch)
+            self.cur_my = np.zeros((self.number_of_robots,5))
+            self.cur_op = np.zeros((self.number_of_robots,5))
 
             self.cur_ball = np.zeros(2) # ball (x,y) position
             self.prev_ball = np.zeros(2) # previous ball (x,y) position
 
-            self.state_dim = 2 # relative ball
-            self.action_dim = 2 # 2
+            # distance to the ball, (team, robot index)
+            self.dist_ball = np.zeros((2, self.number_of_robots))
+            # index for which my robot is close to the ball
+            self.idxs = [i for i in range(self.number_of_robots)]
 
-            self.coach_agent = DQNAgent(self.state_dim, self.action_dim)
+            self.dlck_cnt = 0 # deadlock count
+            # how many times avoid deadlock function was called
+            self.avoid_dlck_cnt = 0             
 
             self.wheels = np.zeros(self.number_of_robots*2)
+            ##################################################################
+            self.state_dim = 3 # relative ball
+            self.action_dim = 2 # 2
+            self.coach_agent = DQNAgent(self.state_dim, self.action_dim)
 
             self.train_step = 0
             return
@@ -111,13 +121,69 @@ class Component(ApplicationSession):
 ##############################################################################
     def get_coord(self, received_frame):
         self.cur_ball = received_frame.coordinates[BALL]
-        self.cur_my = received_frame.coordinates[MY_TEAM]                
+        self.cur_my = received_frame.coordinates[MY_TEAM]
+        self.cur_op = received_frame.coordinates[OP_TEAM]
 
-    def get_reward(self, reset_reason, i):
-        pass     
+    def get_idxs(self):
+        # sort according to distant to the ball
+        # my team
+        for i in range(self.number_of_robots):
+            self.dist_ball[MY_TEAM][i] = helper.distance(self.cur_ball[X], 
+                            self.cur_my[i][X], self.cur_ball[Y], self.cur_my[i][Y])
+        # opponent team
+        for i in range(self.number_of_robots):
+            self.dist_ball[OP_TEAM][i] = helper.distance(self.cur_ball[X], 
+                            self.cur_op[i][X], self.cur_ball[Y], self.cur_op[i][Y])
+
+        # my team distance index
+        idxs = sorted(range(len(self.dist_ball[MY_TEAM])), 
+                                        key=lambda k: self.dist_ball[MY_TEAM][k])
+        return idxs
+
+    def count_deadlock(self):
+        # delta of ball
+        delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
+                                    self.cur_ball[Y], self.prev_ball[Y])
+
+        if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
+            self.dlck_cnt += 1
+        else:
+            self.dlck_cnt = 0
+            self.avoid_dlck_cnt = 0
+
+    def get_reward(self):
+        reward = 0
+        # if my_bench:
+        #     reward += 1
+        # if op_bench:
+        #     reward -= 1
+
+        return reward
+
+    def get_next_state(self):
+        self.idxs  = self.get_idxs()
+        self.count_deadlock()
+
+        # my team closest distance to the ball
+        # op team closest distance to the ball
+        # deadlock count
+        next_state = [self.dist_ball[MY_TEAM][self.idxs[0]], 
+                                    self.dist_ball[OP_TEAM].min(), self.dlck_cnt]
+
+        return np.array(next_state)
 
     def step(self, received_frame):
         self.get_coord(received_frame)
+        reward = self.get_reward()
+        next_state = self.get_next_state()
+
+        if(received_frame.reset_reason != NONE) \
+                                    and (received_frame.reset_reason is not None):
+            reset = True
+        else:
+            reset = False
+
+        return reward, next_state, reset
 
 ##############################################################################
     # function for heuristic moving
@@ -223,14 +289,18 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[BALL][Y])
 ##############################################################################
             # get next state, reward, and reset info
-            # reward, next_state, reset = self.step(received_frame)
-            # next_state = np.reshape(next_state, (1, self.state_dim, 1))
+            reward, next_state, reset = self.step(received_frame)
+            self.printConsole('reward: '+str(reward))
+            self.printConsole('next state: '+str(next_state))
+            self.printConsole('reset '+str(reset))
+            next_state = np.reshape(next_state, (1, self.state_dim, 1))
 
             # # update
-            # self.coach_agent.replay_memory(self.coach_agent.history, 
-            #     self.coach_agent.action, reward, next_state, reset)
-            # if len(self.coach_agent.memory) >= self.agent.train_start:
-            #     self.agent.train_replay()
+            self.coach_agent.replay_memory(self.coach_agent.history, 
+                self.coach_agent.action, reward, next_state, reset)
+            if len(self.coach_agent.memory) >= self.coach_agent.train_start:
+                self.coach_agent.train_replay()
+                self.printConsole('train')
 
             # # save next state
             # self.coach_agent.history = next_state
@@ -239,6 +309,7 @@ class Component(ApplicationSession):
 
             # set_action(self, self.coach_agent.action)
             set_wheel(self, self.wheels.tolist())
+            self.prev_ball = self.cur_ball
 
             # increase global step
             self.train_step += 1

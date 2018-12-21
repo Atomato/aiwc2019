@@ -33,7 +33,8 @@ class DQNAgent:
 
         # parameters about training
         self.batch_size = 32
-        self.train_start = 50_000
+        self.train_start = 100
+        # self.train_start = 50_000
         self.update_target_rate = 10_000
         self.discount_factor = 0.99
         self.memory = deque(maxlen=400_000)
@@ -149,7 +150,7 @@ class DQNAgent:
                                         np.amax(target_value[i])
 
         loss = self.optimizer([history, action, target])
-        self.avg_loss += loss[0]
+        # self.avg_loss += loss[0]
 
     def save_model(self, name):
         self.model.save_weights(name)
