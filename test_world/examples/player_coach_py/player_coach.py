@@ -103,6 +103,10 @@ class Component(ApplicationSession):
             self.coach_agent = DQNAgent(self.state_dim, self.action_dim)
 
             self.train_step = 0
+            self.save_steps = 12000 # save every 10 minuites
+            self.tb_steps = 6000 # write to tensorboard
+            self.rwd_sum = 0
+            self.scr_sum = 0
             return
 ##############################################################################
         try:
@@ -406,9 +410,29 @@ class Component(ApplicationSession):
             set_wheel(self, self.wheels.tolist())
             self.prev_ball = self.cur_ball
 
-            # increase global step
-            self.train_step += 1
+            self.train_step += 1 # increase global step
+            self.rwd_sum += reward
+            if received_frame.reset_reason == SCORE_MYTEAM:
+                self.scr_sum += 1
+            elif received_frame.reset_reason == SCORE_OPPONENT:
+                self.scr_sum -= 1
             self.printConsole('step: ' + str(self.train_step))
+##############################################################################
+            if self.train_step % self.save_steps == 0:
+                self.coach_agent.save_model("./save_model/coach_dlck_dqn%s.h5" \
+                                                         % self.train_step)
+                self.printConsole('epsilon: '+str(self.coach_agent.epsilon))
+
+            if self.train_step % self.tb_steps == 0:
+                data = [self.rwd_sum, self.scr_sum]
+                for i in range(len(data)):
+                    self.coach_agent.sess.run(self.coach_agent.update_ops[i], 
+                        feed_dict={self.coach_agent.summary_placeholders[i]: 
+                        float(data[i])})
+                summary_str = self.coach_agent.sess.run(self.coach_agent.summary_op)
+                self.coach_agent.summary_writer.add_summary(
+                            summary_str, self.train_step)
+                self.rwd_sum, self.scr_sum = 0., 0.
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
