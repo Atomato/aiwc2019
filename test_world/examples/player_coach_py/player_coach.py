@@ -16,6 +16,7 @@ from autobahn.twisted.wamp import ApplicationSession, ApplicationRunner
 import argparse
 import sys
 import numpy as np
+import math
 
 import helper
 from aiwc_dqn import DQNAgent
@@ -98,7 +99,7 @@ class Component(ApplicationSession):
             self.wheels = np.zeros(self.number_of_robots*2)
             ##################################################################
             self.state_dim = 3 # relative ball
-            self.action_dim = 2 # 2
+            self.action_dim = 2 # avoid dead lock or not
             self.coach_agent = DQNAgent(self.state_dim, self.action_dim)
 
             self.train_step = 0
@@ -197,7 +198,21 @@ class Component(ApplicationSession):
             reset = False
 
         return reward, next_state, reset
+##############################################################################
+    # function for heuristic coach's action        
+    def count_goal_area(self):
+        cnt = 0
+        for i in range(self.number_of_robots):
+            if (abs(self.cur_my[i][X]) > 1.6) and (abs(self.cur_my[i][Y]) < 0.43):
+                cnt += 1
+        return cnt
 
+    def count_penalty_area(self):
+        cnt = 0
+        for i in range(self.number_of_robots):
+            if (abs(self.cur_my[i][X]) > 1.3) and (abs(self.cur_my[i][Y]) < 0.7):
+                cnt += 1
+        return cnt
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
@@ -265,6 +280,72 @@ class Component(ApplicationSession):
         def set_wheel(self, robot_wheels):
             yield self.call(u'aiwc.set_speed', args.key, robot_wheels)
             return
+
+        def avoid_goal_foul(self):
+            midfielder(self, self.idxs[0])
+            midfielder(self, self.idxs[1])
+            self.position(self.idxs[2], 0, 0)
+            self.position(self.idxs[3], 0, 0)
+            self.position(self.idxs[4], 0, 0)
+
+        def avoid_penalty_foul(self):
+            midfielder(self, self.idxs[0])
+            midfielder(self, self.idxs[1])
+            midfielder(self, self.idxs[2])
+            self.position(self.idxs[3], 0, 0)
+            self.position(self.idxs[4], 0, 0)            
+
+        def avoid_deadlock(self):
+            self.position(0, self.cur_ball[X], 0)
+            self.position(1, self.cur_ball[X], 0)
+            self.position(2, self.cur_ball[X], 0)
+            self.position(3, self.cur_ball[X], 0)
+            self.position(4, self.cur_ball[X], 0)
+
+        def midfielder(self, robot_id):
+            goal_dist = helper.distance(self.cur_my[robot_id][X], self.field[X]/2,
+                                         self.cur_my[robot_id][Y], 0)
+            shoot_mul = 1
+            dribble_dist = 0.426
+            v = 5
+            goal_to_ball_unit = helper.unit([self.field[X]/2 - self.cur_ball[X],
+                                                            - self.cur_ball[Y]])
+            delta = [self.cur_ball[X] - self.cur_my[robot_id][X],
+                    self.cur_ball[Y] - self.cur_my[robot_id][Y]]
+
+            if (self.dist_ball[MY_TEAM][robot_id] < 0.5) and (delta[X] > 0):
+                self.position(robot_id, self.cur_ball[X] + v*delta[X], 
+                                        self.cur_ball[Y] + v*delta[Y])                   
+            else:
+                self.position(robot_id, 
+                    self.cur_ball[X] - dribble_dist*goal_to_ball_unit[X], 
+                    self.cur_ball[Y] - dribble_dist*goal_to_ball_unit[Y])
+
+        def offense(self):
+            midfielder(self, 0)
+            midfielder(self, 1)
+            midfielder(self, 2)
+            midfielder(self, 3)
+            midfielder(self, 4)
+
+        def set_action(self, act_idx):
+            if act_idx == 0:
+                # count how many robots is in the goal area
+                goal_area_cnt = self.count_goal_area()
+                # count how many robots is in the penalty area
+                penalty_area_cnt = self.count_penalty_area()
+
+                if goal_area_cnt > 2:
+                    avoid_goal_foul(self)
+                elif penalty_area_cnt > 3:
+                    avoid_penalty_foul(self)
+                else:
+                    offense(self)
+            elif act_idx == 1:
+                avoid_deadlock(self)
+                self.printConsole('avoid deadlock')
+            else:
+                self.printConsole('action index is over 1')
             
         # initiate empty frame
         received_frame = Frame()
@@ -317,10 +398,11 @@ class Component(ApplicationSession):
 
             # # save next state
             self.coach_agent.history = next_state
-            # self.coach_agent.action = self.coach_agent.\
-                        # get_action(np.reshape(self.coach_agent.history, (1, -1)))
+            self.coach_agent.action = self.coach_agent.\
+                        get_action(np.reshape(self.coach_agent.history, (1, -1)))
 
-            # set_action(self, self.coach_agent.action)
+            # coach's action to positions to go
+            set_action(self, self.coach_agent.action)
             set_wheel(self, self.wheels.tolist())
             self.prev_ball = self.cur_ball
 

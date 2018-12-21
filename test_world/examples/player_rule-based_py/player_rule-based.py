@@ -134,7 +134,7 @@ class Component(ApplicationSession):
         for i in range(self.number_of_robots):
             if (abs(self.cur_my[i][X]) > 1.3) and (abs(self.cur_my[i][Y]) < 0.7):
                 cnt += 1
-        return cnt        
+        return cnt
 
     def count_deadlock(self):
         # delta of ball
@@ -313,14 +313,13 @@ class Component(ApplicationSession):
 
             if goal_area_cnt > 2:
                 avoid_goal_foul(self)
-            if penalty_area_cnt > 3:
+            elif penalty_area_cnt > 3:
                 avoid_penalty_foul(self)
             elif self.dlck_cnt > 15:
                 avoid_deadlock(self)
                 self.avoid_dlck_cnt += 1
             else:
                 offense(self)
-                pass
 
             self.prev_ball = self.cur_ball
             set_wheel(self, self.wheels.tolist())         
