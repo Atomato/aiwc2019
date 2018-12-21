@@ -76,11 +76,11 @@ class Component(ApplicationSession):
 
             ##################################################################
             # team info, 5 robots, (x,y,th,active,touch)
-            self.cur_my = np.zeros((self.number_of_robots,5))
-            self.cur_op = np.zeros((self.number_of_robots,5))
+            self.cur_my = [[] for _ in range(self.number_of_robots)]
+            self.cur_op = [[] for _ in range(self.number_of_robots)]
 
-            self.cur_ball = np.zeros(2) # ball (x,y) position
-            self.prev_ball = np.zeros(2) # previous ball (x,y) position
+            self.cur_ball = [] # ball (x,y) position
+            self.prev_ball = [0., 0.] # previous ball (x,y) position
 
             # distance to the ball, (team, robot index)
             self.dist_ball = np.zeros((2, self.number_of_robots))
