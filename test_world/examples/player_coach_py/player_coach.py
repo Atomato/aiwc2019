@@ -82,6 +82,10 @@ class Component(ApplicationSession):
             self.cur_ball = [] # ball (x,y) position
             self.prev_ball = [0., 0.] # previous ball (x,y) position
 
+            # indicate active flag of previous frame, (team, robot index)
+            self.active_flag = [[True for _ in range(self.number_of_robots)], 
+                                [True for _ in range(self.number_of_robots)]]
+
             # distance to the ball, (team, robot index)
             self.dist_ball = np.zeros((2, self.number_of_robots))
             # index for which my robot is close to the ball
@@ -153,10 +157,19 @@ class Component(ApplicationSession):
 
     def get_reward(self):
         reward = 0
-        # if my_bench:
-        #     reward += 1
-        # if op_bench:
-        #     reward -= 1
+        # if my robot become deactive, recieve penalty
+        for i in range(self.number_of_robots):
+            if (not self.cur_my[i][ACTIVE]) and (self.active_flag[MY_TEAM][i]):
+                reward -= 1
+                self.printConsole("my team go to the bench")
+            self.active_flag[MY_TEAM][i] = self.cur_my[i][ACTIVE]
+
+        # if opponent robot become deactive, recieve reward
+        for i in range(self.number_of_robots):
+            if (not self.cur_op[i][ACTIVE]) and (self.active_flag[OP_TEAM][i]):
+                reward += 1
+                self.printConsole("op team go to the bench")
+            self.active_flag[OP_TEAM][i] = self.cur_op[i][ACTIVE]            
 
         return reward
 
@@ -246,7 +259,7 @@ class Component(ApplicationSession):
                                     sign * (mult_lin * (1 / (1 + math.exp(-3*d_e)) - damping) + mult_ang * ka * d_th))
 ##############################################################################
     @inlineCallbacks
-    def on_event(self, f):        
+    def on_event(self, f):
 
         @inlineCallbacks
         def set_wheel(self, robot_wheels):
@@ -303,9 +316,9 @@ class Component(ApplicationSession):
                 self.printConsole('train')
 
             # # save next state
-            # self.coach_agent.history = next_state
+            self.coach_agent.history = next_state
             # self.coach_agent.action = self.coach_agent.\
-            #             get_action(np.reshape(self.coach_agent.history, (1, -1)))
+                        # get_action(np.reshape(self.coach_agent.history, (1, -1)))
 
             # set_action(self, self.coach_agent.action)
             set_wheel(self, self.wheels.tolist())
