@@ -18,6 +18,7 @@ import sys
 import numpy as np
 
 import helper
+from aiwc_dqn import DQNAgent
 
 #reset_reason
 NONE = 0
@@ -72,17 +73,19 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-            self.cur_my_posture = []
-            self.cur_ball = []
+
+            # my team info, 5 robots, (x,y,th,active,touch)
+            self.cur_my = np.zeros((self.number_of_robots,5)) 
+
+            self.cur_ball = np.zeros(2) # ball (x,y) position
+            self.prev_ball = np.zeros(2) # previous ball (x,y) position
 
             self.state_dim = 2 # relative ball
             self.action_dim = 2 # 2
 
-            # self.coach_agent = DQNAgent()
+            self.coach_agent = DQNAgent(self.state_dim, self.action_dim)
 
-            # self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            # self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
-            # self.wheels = np.zeros(self.number_of_robots*2)
+            self.wheels = np.zeros(self.number_of_robots*2)
 
             self.train_step = 0
             return
@@ -108,21 +111,14 @@ class Component(ApplicationSession):
 ##############################################################################
     def get_coord(self, received_frame):
         self.cur_ball = received_frame.coordinates[BALL]
-        self.cur_my_posture = received_frame.coordinates[MY_TEAM]                
+        self.cur_my = received_frame.coordinates[MY_TEAM]                
 
     def get_reward(self, reset_reason, i):
-        dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my_posture[i][X], 
-            self.cur_ball[Y], self.cur_my_posture[i][Y])
-        self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
+        pass     
 
-        touch_rew = 0
-        if self.cur_my_posture[i][TOUCH]:
-            touch_rew += 10
+    def step(self, received_frame):
+        self.get_coord(received_frame)
 
-        rew = dist_rew + touch_rew
-
-        self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
-        return rew      
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
@@ -144,12 +140,12 @@ class Component(ApplicationSession):
         ka = 0
         sign = 1
         
-        dx = x - self.cur_my_posture[robot_id][X]
-        dy = y - self.cur_my_posture[robot_id][Y]
+        dx = x - self.cur_my[robot_id][X]
+        dy = y - self.cur_my[robot_id][Y]
         d_e = math.sqrt(math.pow(dx, 2) + math.pow(dy, 2))
         desired_th = (math.pi/2) if (dx == 0 and dy == 0) else math.atan2(dy, dx)
 
-        d_th = desired_th - self.cur_my_posture[robot_id][TH] 
+        d_th = desired_th - self.cur_my[robot_id][TH] 
         while(d_th > math.pi):
             d_th -= 2*math.pi
         while(d_th < -math.pi):
@@ -225,32 +221,28 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[OP_TEAM][ROBOT_ID][TOUCH])
             #self.printConsole(received_frame.coordinates[BALL][X])
             #self.printConsole(received_frame.coordinates[BALL][Y])
-                                               
-            self.get_coord(received_frame)
 ##############################################################################
-            # Next state, Reward, Reset
+            # get next state, reward, and reset info
+            # reward, next_state, reset = self.step(received_frame)
+            # next_state = np.reshape(next_state, (1, self.state_dim, 1))
 
-            # Next state
+            # # update
+            # self.coach_agent.replay_memory(self.coach_agent.history, 
+            #     self.coach_agent.action, reward, next_state, reset)
+            # if len(self.coach_agent.memory) >= self.agent.train_start:
+            #     self.agent.train_replay()
 
-            # Reward
+            # # save next state
+            # self.coach_agent.history = next_state
+            # self.coach_agent.action = self.coach_agent.\
+            #             get_action(np.reshape(self.coach_agent.history, (1, -1)))
 
-            # Reset
+            # set_action(self, self.coach_agent.action)
+            set_wheel(self, self.wheels.tolist())
 
-            # update 
-            # self.trainers.preupdate()
-            # loss = self.trainers.update([self.trainers], self.train_step)
-
-            # self.state = next_state
-
-            # increment global step counter
+            # increase global step
             self.train_step += 1
-
-            # get action
-            # self.action = self.trainers.action(self.state)
-
             self.printConsole('step: ' + str(self.train_step))
-
-            # set_wheel(self, self.wheels.tolist())         
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)

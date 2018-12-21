@@ -14,12 +14,12 @@ from keras import backend as K
 class DQNAgent:
     def __init__(self, state_size, action_size):
         # load model if True
-        self.load_model = True
+        self.load_model = False
 
         # get size of state and action
         self.state_size = state_size
         self.action_size = action_size
-        self.history_size = 4
+        self.history_size = 1
         # store the history and the action pair
         self.action = np.int64(0)
         self.history = np.zeros([1, self.state_size, self.history_size])        
@@ -27,16 +27,16 @@ class DQNAgent:
         # parameters about epsilon
         self.epsilon = 0.
         self.epsilon_start, self.epsilon_end = 1.0, 0.1
-        self.exploration_steps = 100000.
+        self.exploration_steps = 1_000_000.
         self.epsilon_decay_step = (self.epsilon_start - self.epsilon_end) \
                                   / self.exploration_steps
 
         # parameters about training
         self.batch_size = 32
-        self.train_start = 5000
-        self.update_target_rate = 1000
+        self.train_start = 50_000
+        self.update_target_rate = 10_000
         self.discount_factor = 0.99
-        self.memory = deque(maxlen=40000)
+        self.memory = deque(maxlen=400_000)
         #self.no_op_steps = 30
 
         # build model
@@ -47,15 +47,15 @@ class DQNAgent:
         self.optimizer = self.optimizer()
 
         # tensorboard setting
-        self.sess = tf.InteractiveSession()
-        K.set_session(self.sess)
+        # self.sess = tf.InteractiveSession()
+        # K.set_session(self.sess)
 
-        self.avg_q_max, self.avg_loss = 0, 0
-        self.summary_placeholders, self.update_ops, self.summary_op = \
-            self.setup_summary()
-        self.summary_writer = tf.summary.FileWriter(
-            'summary/aiwc_dqn', self.sess.graph)
-        self.sess.run(tf.global_variables_initializer())
+        # self.avg_q_max, self.avg_loss = 0, 0
+        # self.summary_placeholders, self.update_ops, self.summary_op = \
+        #     self.setup_summary()
+        # self.summary_writer = tf.summary.FileWriter(
+        #     'summary/aiwc_dqn', self.sess.graph)
+        # self.sess.run(tf.global_variables_initializer())
 
         if self.load_model:
             self.model.load_weights("./save_model/aiwc_dqn.h5")
@@ -155,25 +155,25 @@ class DQNAgent:
         self.model.save_weights(name)
 
     # make summary operators for tensorboard
-    def setup_summary(self):
-        episode_total_reward = tf.Variable(0.)
-        episode_avg_max_q = tf.Variable(0.)
-        episode_duration = tf.Variable(0.)
-        episode_avg_loss = tf.Variable(0.)
-        episode_total_score = tf.Variable(0.)
+    # def setup_summary(self):
+    #     episode_total_reward = tf.Variable(0.)
+    #     episode_avg_max_q = tf.Variable(0.)
+    #     episode_duration = tf.Variable(0.)
+    #     episode_avg_loss = tf.Variable(0.)
+    #     episode_total_score = tf.Variable(0.)
 
-        tf.summary.scalar('Total Reward/Episode', episode_total_reward)
-        tf.summary.scalar('Average Max Q/Episode', episode_avg_max_q)
-        tf.summary.scalar('Duration/Episode', episode_duration)
-        tf.summary.scalar('Average Loss/Episode', episode_avg_loss)
-        tf.summary.scalar('Total Score/Episode', episode_total_score)
+    #     tf.summary.scalar('Total Reward/Episode', episode_total_reward)
+    #     tf.summary.scalar('Average Max Q/Episode', episode_avg_max_q)
+    #     tf.summary.scalar('Duration/Episode', episode_duration)
+    #     tf.summary.scalar('Average Loss/Episode', episode_avg_loss)
+    #     tf.summary.scalar('Total Score/Episode', episode_total_score)
 
-        summary_vars = [episode_total_reward, episode_avg_max_q,
-                        episode_duration, episode_avg_loss, episode_total_score]
-        summary_placeholders = [tf.placeholder(tf.float32) for _ in
-                                range(len(summary_vars))]
-        update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in
-                      range(len(summary_vars))]
-        summary_op = tf.summary.merge_all()
-        return summary_placeholders, update_ops, summary_op
+    #     summary_vars = [episode_total_reward, episode_avg_max_q,
+    #                     episode_duration, episode_avg_loss, episode_total_score]
+    #     summary_placeholders = [tf.placeholder(tf.float32) for _ in
+    #                             range(len(summary_vars))]
+    #     update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in
+    #                   range(len(summary_vars))]
+    #     summary_op = tf.summary.merge_all()
+    #     return summary_placeholders, update_ops, summary_op
 
