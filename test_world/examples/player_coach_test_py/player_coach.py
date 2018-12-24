@@ -298,7 +298,8 @@ class Component(ApplicationSession):
             midfielder(self, 4)
 
         def set_action(self, act_idx):
-            if act_idx == 0:
+            # if coach action index is 0 or the ball is not in side of the field,
+            if (act_idx == 0) or ((abs(self.cur_ball[Y]) < 0.65)):
                 # count how many robots is in the goal area
                 goal_area_cnt = self.count_goal_area()
                 # count how many robots is in the penalty area
