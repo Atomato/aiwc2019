@@ -15,7 +15,7 @@ class DQNAgent:
     def __init__(self, state_size, action_size):
         # load model if True
         self.load_model = True
-        load_add = './save_model/coach_dlck_dqn1032000.h5'
+        load_add = './save_model/coach_dlck_dqn3444000.h5'
 
         # get size of state and action
         self.state_size = state_size
