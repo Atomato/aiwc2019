@@ -2,3 +2,8 @@ coach_dlck_dqn3444000.h5
 player 1: 460
 player 2: 841
 0.547
+
+coach_dlck_dqn1032000.h5
+player 1: 587
+player 2: 1127
+0.521
