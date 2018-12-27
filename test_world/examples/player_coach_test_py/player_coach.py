@@ -74,7 +74,7 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-
+            
             ##################################################################
             # team info, 5 robots, (x,y,th,active,touch)
             self.cur_my = [[] for _ in range(self.number_of_robots)]
@@ -298,8 +298,10 @@ class Component(ApplicationSession):
             midfielder(self, 4)
 
         def set_action(self, act_idx):
-            # if coach action index is 0 or the ball is not in side of the field,
-            if (act_idx == 0) or ((abs(self.cur_ball[Y]) < 0.65)):
+            # if coach action index is 0 or the ball is not in side of the field
+            # or closest distance to the ball is over 0.15
+            if (act_idx == 0) or ((abs(self.cur_ball[Y]) < 0.65)) \
+                            or (self.dist_ball[MY_TEAM][self.idxs[0]] > 0.15):
                 # count how many robots is in the goal area
                 goal_area_cnt = self.count_goal_area()
                 # count how many robots is in the penalty area
