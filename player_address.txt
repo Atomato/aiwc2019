@@ -1,6 +1,6 @@
 examples/player_moving_py/player_moving.py
 examples/player_coach_py/player_coach.py
 examples/player_coach_test_py/player_coach.py
-examples/player_rule-based_py/player_rule-based.py
 
+examples/player_rule-based_py/player_rule-based.py
 examples/player_test_py/player_test.py

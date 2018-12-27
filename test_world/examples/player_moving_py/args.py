@@ -9,5 +9,5 @@ class Argument(object):
 		# Checkpointing
 		self.restore = False
 		self.save_dir = "./save_model/aiwc_maddpg" # directory in which training state and model should be saved
-		self.save_rate = 1000 # save model once every time this many episodes are completed
+		# self.save_rate = 1000 # save model once every time this many episodes are completed
 		self.load_dir = "./save_model/aiwc_maddpg" # directory in which training state and model are loaded

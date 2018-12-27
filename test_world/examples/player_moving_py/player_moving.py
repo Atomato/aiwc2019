@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# keunhyung 12/17
+# keunhyung 12/27
 # shoot and chase
 # multi experience
 
@@ -127,7 +127,6 @@ class Component(ApplicationSession):
             self.stats_steps = 6000 # for tensorboard
             self.reward_sum = np.zeros(self.number_of_robots)
             self.score_sum = 0 
-            self.active_flag = [[False for _ in range(5)], [False for _ in range(5)]]   
             self.inner_step = 0
 
             self.done = False
@@ -212,10 +211,20 @@ class Component(ApplicationSession):
             self.cur_my_posture[i][Y], -self.cur_my_posture[i][TH], 
             self.cur_ball[X], self.cur_ball[Y])
 
+        self.printConsole('Original input: %s' % relative_ball)
+
         dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
+        # If distance to the ball is over 0.5,
+        # clip the distance to be 0.5
         if dist > 0.5:
             relative_ball[X] *= 0.5/dist
             relative_ball[Y] *= 0.5/dist
+
+        # Finally nomalize the distance for the maximum to be 1
+        relative_ball[X] *= 2
+        relative_ball[Y] *= 2
+
+        self.printConsole('Final input: %s' % relative_ball)
 
         return np.array(relative_ball)
 ##############################################################################
@@ -365,11 +374,29 @@ class Component(ApplicationSession):
             self.action = self.trainers.action(self.state)
 
             self.wheels = np.zeros(self.number_of_robots*2)
-            self.wheels[2*self.control_idx] = self.max_linear_velocity * (self.action[1]-self.action[2]+self.action[3]-self.action[4])
-            self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * (self.action[1]-self.action[2]-self.action[3]+self.action[4])
+            self.wheels[2*self.control_idx] = self.max_linear_velocity * \
+                    (self.action[1]-self.action[2]+self.action[3]-self.action[4])
+            self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * \
+                    (self.action[1]-self.action[2]-self.action[3]+self.action[4])
 
-            # self.printConsole("                 action: " + str(self.wheels[:2]))
+            # Send non-control robot to the side of the field
+            for i in range(self.number_of_robots):
+                if i == self.control_idx:
+                    continue
+                else:
+                    if (i == 0) or (i == 2):
+                        x = self.cur_my_posture[i][X]
+                        y = -1.35 
+                    elif (i == 1) or (i == 3):
+                        x = self.cur_my_posture[i][X]
+                        y = 1.35
+                    else:
+                        x = -2.1
+                        y = 0
+                    self.position(i, x, y)
+
             self.printConsole('step: ' + str(self.train_step))
+            # self.printConsole('wheels %s' % self.wheels)
 
             set_wheel(self, self.wheels.tolist())
 ##############################################################################
