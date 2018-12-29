@@ -101,8 +101,10 @@ class Component(ApplicationSession):
                 local_q_func=False)
 
             # for tensorboard
-            # self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
-            # self.summary_writer = tf.summary.FileWriter('summary/aiwc_maddpg', U.get_session().graph)
+            self.summary_placeholders, self.update_ops, self.summary_op = \
+                                                            self.setup_summary()
+            self.summary_writer = \
+                tf.summary.FileWriter('summary/aiwc_maddpg', U.get_session().graph)
 
             U.initialize()
             
@@ -110,24 +112,20 @@ class Component(ApplicationSession):
             if self.arglist.load_dir == "":
                 self.arglist.load_dir = self.arglist.save_dir
             if self.arglist.restore:
-                print('Loading previous state...')
+                print('Loading previous state... %s' % self.arglist.load_dir)
                 U.load_state(self.arglist.load_dir)
 
-            self.episode_rewards = [0.0]  # sum of rewards for all agents
-            self.agent_rewards = [[0.0] for _ in range(self.number_of_robots)]  # individual agent reward
-
-            self.saver = tf.train.Saver()
+            self.saver = tf.train.Saver(max_to_keep=1100)
 
             self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            self.train_step = 0
+            # self.train_step = 0
+            self.train_step = 240000
             self.wheels = np.zeros(self.number_of_robots*2)
             self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
                    
-            self.save_every_steps = 12000 # save the model every 10 minutes
+            self.save_every_steps = 6000 # save the model every 5 minutes
             self.stats_steps = 6000 # for tensorboard
-            self.reward_sum = np.zeros(self.number_of_robots)
-            self.score_sum = 0 
-            self.inner_step = 0
+            self.rwd_sum = 0
 
             self.done = False
             self.control_idx = 0
@@ -164,23 +162,10 @@ class Component(ApplicationSession):
     # make summary operators for tensorboard
     def setup_summary(self):
         episode_total_reward = tf.Variable(0.)
-        episode_0_reward = tf.Variable(0.)
-        episode_1_reward = tf.Variable(0.)
-        episode_2_reward = tf.Variable(0.)
-        episode_3_reward = tf.Variable(0.)
-        episode_4_reward = tf.Variable(0.)
-        episode_total_score = tf.Variable(0.)
 
         tf.summary.scalar('Total Reward/Episode', episode_total_reward)
-        tf.summary.scalar('Reward 0/Episode', episode_0_reward)
-        tf.summary.scalar('Reward 1/Episode', episode_1_reward)
-        tf.summary.scalar('Reward 2/Episode', episode_2_reward)
-        tf.summary.scalar('Reward 3/Episode', episode_3_reward)
-        tf.summary.scalar('Reward 4/Episode', episode_4_reward)
-        tf.summary.scalar('Total Score/Episode', episode_total_score)
 
-        summary_vars = [episode_total_reward, episode_0_reward, episode_1_reward, 
-            episode_2_reward, episode_3_reward, episode_4_reward, episode_total_score]
+        summary_vars = [episode_total_reward]
         summary_placeholders = [tf.placeholder(tf.float32) for _ in
                                 range(len(summary_vars))]
         update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in
@@ -363,9 +348,6 @@ class Component(ApplicationSession):
 
             self.state = next_state
 
-            # increment global step counter
-            self.train_step += 1
-
             # update 
             self.trainers.preupdate()
             loss = self.trainers.update([self.trainers], self.train_step)
@@ -395,28 +377,29 @@ class Component(ApplicationSession):
                         y = 0
                     self.position(i, x, y)
 
+            # increment global step counter
+            self.train_step += 1
+            self.rwd_sum += reward
             self.printConsole('step: ' + str(self.train_step))
-            # self.printConsole('wheels %s' % self.wheels)
 
             set_wheel(self, self.wheels.tolist())
 ##############################################################################
-            # if (self.train_step % self.save_every_steps) == 0:
+            if (self.train_step % self.save_every_steps) == 0:
+                self.saver.save(U.get_session(), self.arglist.save_dir, 
+                    global_step = self.train_step)
                 # U.save_state(self.arglist.save_dir, saver=self.saver)
 
-            # if done: # plot the statics
-            if (self.train_step % self.stats_steps) == 0: # plot every 6000 steps (about 5 minuites)
-                self.printConsole("add data to tensorboard")
-                # stats = [sum(self.reward_sum)] + [self.reward_sum[i] for i in range(len(self.reward_sum))] + [self.score_sum]
-                # for i in range(len(stats)):
-                #     U.get_session().run(self.update_ops[i], feed_dict={
-                #         self.summary_placeholders[i]: float(stats[i])
-                #     })
-                # summary_str = U.get_session().run(self.summary_op)
-                # self.summary_writer.add_summary(summary_str, self.inner_step)
+            # plot every 6000 steps (about 5 minuites)
+            if (self.train_step % self.stats_steps) == 0:
+                stats = [self.rwd_sum]
+                for i in range(len(stats)):
+                    U.get_session().run(self.update_ops[i], feed_dict={
+                        self.summary_placeholders[i]: float(stats[i])
+                    })
+                summary_str = U.get_session().run(self.summary_op)
+                self.summary_writer.add_summary(summary_str, self.train_step)
 
-                # self.reward_sum = np.zeros(len(self.reward_sum))
-                self.score_sum = 0
-                self.inner_step += 1            
+                self.rwd_sum = 0         
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
