@@ -104,7 +104,7 @@ class Component(ApplicationSession):
             self.summary_placeholders, self.update_ops, self.summary_op = \
                                                             self.setup_summary()
             self.summary_writer = \
-                tf.summary.FileWriter('summary/aiwc_maddpg', U.get_session().graph)
+                tf.summary.FileWriter('summary/moving_test', U.get_session().graph)
 
             U.initialize()
             
@@ -118,12 +118,10 @@ class Component(ApplicationSession):
             self.saver = tf.train.Saver(max_to_keep=1100)
 
             self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            # self.train_step = 0
-            self.train_step = 240000
+            self.train_step = 216000
             self.wheels = np.zeros(self.number_of_robots*2)
             self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
                    
-            self.save_every_steps = 6000 # save the model every 5 minutes
             self.stats_steps = 6000 # for tensorboard
             self.rwd_sum = 0
 
@@ -180,7 +178,7 @@ class Component(ApplicationSession):
     def get_reward(self, reset_reason, i):
         dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my[i][X], 
             self.cur_ball[Y], self.cur_my[i][Y])
-        self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
+        # self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
 
         touch_rew = 0
         if self.cur_my[i][TOUCH]:
@@ -188,7 +186,7 @@ class Component(ApplicationSession):
 
         rew = dist_rew + touch_rew
 
-        self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
+        # self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
         return rew      
 
     def pre_processing(self, i):
@@ -196,7 +194,7 @@ class Component(ApplicationSession):
             self.cur_my[i][Y], -self.cur_my[i][TH], 
             self.cur_ball[X], self.cur_ball[Y])
 
-        self.printConsole('Original input: %s' % relative_ball)
+        # self.printConsole('Original input: %s' % relative_ball)
 
         dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
         # If distance to the ball is over 0.5,
@@ -209,7 +207,7 @@ class Component(ApplicationSession):
         relative_ball[X] *= 2
         relative_ball[Y] *= 2
 
-        self.printConsole('Final input: %s' % relative_ball)
+        # self.printConsole('Final input: %s' % relative_ball)
 
         return np.array(relative_ball)
 ##############################################################################
@@ -341,16 +339,7 @@ class Component(ApplicationSession):
             else:
                 self.done = False
 
-            if not self.cur_my[self.control_idx][ACTIVE]:
-                self.printConsole('robot ' + str(self.control_idx) + ' is not active')
-            else:
-                self.trainers.experience(self.state, self.action, reward, next_state, self.done, False)
-
             self.state = next_state
-
-            # update 
-            self.trainers.preupdate()
-            loss = self.trainers.update([self.trainers], self.train_step)
 
             # get action
             self.action = self.trainers.action(self.state)
@@ -378,19 +367,17 @@ class Component(ApplicationSession):
                     self.position(i, x, y)
 
             # increment global step counter
-            self.train_step += 1
-            self.rwd_sum += reward
-            self.printConsole('step: ' + str(self.train_step))
+            # Increase count only when the control robot is active.
+            if self.cur_my[self.control_idx][ACTIVE]:
+                self.train_step += 1
+                self.rwd_sum += reward
+                self.printConsole('step: ' + str(self.train_step))
 
-            set_wheel(self, self.wheels.tolist())
+                set_wheel(self, self.wheels.tolist())
 ##############################################################################
-            if (self.train_step % self.save_every_steps) == 0:
-                self.saver.save(U.get_session(), self.arglist.save_dir, 
-                    global_step = self.train_step)
-                # U.save_state(self.arglist.save_dir, saver=self.saver)
-
             # plot every 6000 steps (about 5 minuites)
-            if (self.train_step % self.stats_steps) == 0:
+            if ((self.train_step % self.stats_steps) == 0) \
+                            and (self.train_step < 1992001):
                 stats = [self.rwd_sum]
                 for i in range(len(stats)):
                     U.get_session().run(self.update_ops[i], feed_dict={
@@ -399,7 +386,11 @@ class Component(ApplicationSession):
                 summary_str = U.get_session().run(self.summary_op)
                 self.summary_writer.add_summary(summary_str, self.train_step)
 
-                self.rwd_sum = 0         
+                self.rwd_sum = 0
+
+                # load new model
+                print('Loading %s' % self.train_step)
+                U.load_state("./save_model/aiwc_maddpg-%s" % self.train_step)
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)

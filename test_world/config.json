@@ -7,7 +7,7 @@
   },
   "team_a": {
     "name": "teamA",
-    "executable": "examples/player_moving_py/player_moving.py",
+    "executable": "examples/player_moving_test_py/player_moving.py",
     "datapath": "examples/team_a_data"
   },
   "team_b": {
