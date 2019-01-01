@@ -384,7 +384,7 @@ class Component(ApplicationSession):
                         self.summary_placeholders[i]: float(stats[i])
                     })
                 summary_str = U.get_session().run(self.summary_op)
-                self.summary_writer.add_summary(summary_str, self.train_step)
+                self.summary_writer.add_summary(summary_str, self.train_step-6000)
 
                 self.rwd_sum = 0
 
