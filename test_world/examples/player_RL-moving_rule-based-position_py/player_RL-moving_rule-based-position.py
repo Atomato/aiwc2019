@@ -22,6 +22,7 @@ import sys
 
 import base64
 import numpy as np
+import time
 
 import helper
 
@@ -110,7 +111,10 @@ class Component(ApplicationSession):
             self.history_size = 2 # frame history size
             self.action_dim = 2 # 2                    
             
-            self.state = np.zeros([self.state_dim * self.history_size]) # histories
+            # Histories of five robots.
+            self.state = [np.zeros([self.state_dim * self.history_size]) \
+                                    for _ in range(self.number_of_robots)]
+
             self.arglist = Argument()
 
             # state dimension
@@ -137,13 +141,15 @@ class Component(ApplicationSession):
                 tf.summary.FileWriter('summary/moving_test', U.get_session().graph)
             ##################################################################
             self.test_step = 0
-            self.stats_steps = 72000 # For tensorboard, about 1 hour
+            self.stats_steps = 12000 # For tensorboard, about 10 minutes
 
-            self.scr_my = 0 # my team score
-            self.scr_op = 0 # op team score
+            self.scr_my = 0. # my team score
+            self.scr_op = 0. # op team score
             self.scr_sum = 0 # score sum
 
             self.reset = False
+            ##################################################################
+            self.cur_time = time.time() # For check time to take
             return
 ##############################################################################        
         try:
@@ -194,102 +200,76 @@ class Component(ApplicationSession):
         self.cur_ball = received_frame.coordinates[BALL]
         self.cur_my = received_frame.coordinates[MY_TEAM]                
 
-    def get_reward(self, reset_reason, i):
-        dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my[i][X], 
-            self.cur_ball[Y], self.cur_my[i][Y])
-        # self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
+    def get_idxs(self):
+        # sort according to distant to the ball
+        for i in range(self.number_of_robots):
+            self.dist_ball[i] = helper.distance(self.cur_ball[X], self.cur_my[i][X], 
+                                                self.cur_ball[Y], self.cur_my[i][Y])
+        idxs = sorted(range(len(self.dist_ball)), key=lambda k: self.dist_ball[k])
+        return idxs  
 
-        touch_rew = 0
-        if self.cur_my[i][TOUCH]:
-            touch_rew += 10
+    def count_goal_area(self):
+        cnt = 0
+        for i in range(self.number_of_robots):
+            if (abs(self.cur_my[i][X]) > 1.6) and (abs(self.cur_my[i][Y]) < 0.43):
+                cnt += 1
+        return cnt
 
-        rew = dist_rew + touch_rew
+    def count_penalty_area(self):
+        cnt = 0
+        for i in range(self.number_of_robots):
+            if (abs(self.cur_my[i][X]) > 1.3) and (abs(self.cur_my[i][Y]) < 0.7):
+                cnt += 1
+        return cnt        
 
-        # self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
-        return rew      
+    def count_deadlock(self):
+        # delta of ball
+        delta_b = helper.distance(self.cur_ball[X], self.prev_ball[X], \
+                                    self.cur_ball[Y], self.prev_ball[Y])
 
-    def pre_processing(self, i):
-        relative_ball = helper.rot_transform(self.cur_my[i][X], 
-            self.cur_my[i][Y], -self.cur_my[i][TH], 
-            self.cur_ball[X], self.cur_ball[Y])
+        if (abs(self.cur_ball[Y]) > 0.65) and (delta_b < 0.02):
+            self.dlck_cnt += 1
+        else:
+            self.dlck_cnt = 0
+            self.avoid_dlck_cnt = 0
 
-        # self.printConsole('Original input: %s' % relative_ball)
+    def pre_processing(self, i, x, y):
+        relative_pos = helper.rot_transform(self.cur_my[i][X], 
+                self.cur_my[i][Y], -self.cur_my[i][TH], x, y)
 
-        dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
+        dist = helper.distance(relative_pos[X],0,relative_pos[Y],0)
         # If distance to the ball is over 0.5,
         # clip the distance to be 0.5
         if dist > 0.5:
-            relative_ball[X] *= 0.5/dist
-            relative_ball[Y] *= 0.5/dist
+            relative_pos[X] *= 0.5/dist
+            relative_pos[Y] *= 0.5/dist
 
         # Finally nomalize the distance for the maximum to be 1
-        relative_ball[X] *= 2
-        relative_ball[Y] *= 2
+        relative_pos[X] *= 2
+        relative_pos[Y] *= 2
 
-        # self.printConsole('Final input: %s' % relative_ball)
-
-        return np.array(relative_ball)
+        return np.array(relative_pos)
 ##############################################################################
-    # function for heuristic moving
-    def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
-        multiplier = 1
-        
-        if(abs(left_wheel) > self.max_linear_velocity or abs(right_wheel) > self.max_linear_velocity):
-            if (abs(left_wheel) > abs(right_wheel)):
-                multiplier = self.max_linear_velocity / abs(left_wheel)
-            else:
-                multiplier = self.max_linear_velocity / abs(right_wheel)
-        
-        self.wheels[2*robot_id] = left_wheel*multiplier
-        self.wheels[2*robot_id + 1] = right_wheel*multiplier
-
-    def position(self, robot_id, x, y):
-        damping = 0.35
-        mult_lin = 3.5
-        mult_ang = 0.4
-        ka = 0
-        sign = 1
-        
-        dx = x - self.cur_my[robot_id][X]
-        dy = y - self.cur_my[robot_id][Y]
-        d_e = math.sqrt(math.pow(dx, 2) + math.pow(dy, 2))
-        desired_th = (math.pi/2) if (dx == 0 and dy == 0) else math.atan2(dy, dx)
-
-        d_th = desired_th - self.cur_my[robot_id][TH] 
-        while(d_th > math.pi):
-            d_th -= 2*math.pi
-        while(d_th < -math.pi):
-            d_th += 2*math.pi
-            
-        if (d_e > 1):
-            ka = 17/90
-        elif (d_e > 0.5):
-            ka = 19/90
-        elif (d_e > 0.3):
-            ka = 21/90
-        elif (d_e > 0.2):
-            ka = 23/90
+    # RL-based moving
+    def position(self, i, x, y):
+        relative_pos = self.pre_processing(i, x, y)
+        if self.reset:
+            # 2 frames position stack
+            self.state[i] = np.append(relative_pos, relative_pos)
         else:
-            ka = 25/90
-            
-        if (d_th > helper.degree2radian(95)):
-            d_th -= math.pi
-            sign = -1
-        elif (d_th < helper.degree2radian(-95)):
-            d_th += math.pi
-            sign = -1
-            
-        if (abs(d_th) > helper.degree2radian(85)):
-            self.set_wheel_velocity(robot_id, -mult_ang*d_th, mult_ang*d_th)
-        else:
-            if (d_e < 5 and abs(d_th) < helper.degree2radian(40)):
-                ka = 0.1
-            ka *= 4
-            self.set_wheel_velocity(robot_id, 
-                                    sign * (mult_lin * (1 / (1 + math.exp(-3*d_e)) - damping) - mult_ang * ka * d_th),
-                                    sign * (mult_lin * (1 / (1 + math.exp(-3*d_e)) - damping) + mult_ang * ka * d_th))
+            # 2 frames position stack
+            self.state[i] = np.append(relative_pos, self.state[i][:-self.state_dim])
+
+        self.printConsole(self.state[i])
+
+        # get action
+        self.action = self.trainers.action(self.state[i])
+
+        self.wheels[2*i] = self.max_linear_velocity * \
+                (self.action[1]-self.action[2]+self.action[3]-self.action[4])
+        self.wheels[2*i + 1] = self.max_linear_velocity * \
+                (self.action[1]-self.action[2]-self.action[3]+self.action[4])
 ##############################################################################
-
     @inlineCallbacks
     def on_event(self, f):        
 
@@ -297,6 +277,79 @@ class Component(ApplicationSession):
         def set_wheel(self, robot_wheels):
             yield self.call(u'aiwc.set_speed', args.key, robot_wheels)
             return
+
+        def avoid_goal_foul(self):
+            midfielder(self, self.idxs[0])
+            midfielder(self, self.idxs[1])
+            self.position(self.idxs[2], 0, 0)
+            self.position(self.idxs[3], 0, 0)
+            self.position(self.idxs[4], 0, 0)
+
+        def avoid_penalty_foul(self):
+            midfielder(self, self.idxs[0])
+            midfielder(self, self.idxs[1])
+            midfielder(self, self.idxs[2])
+            self.position(self.idxs[3], 0, 0)
+            self.position(self.idxs[4], 0, 0)            
+
+        def avoid_deadlock(self):
+            self.position(0, self.cur_ball[X], 0)
+            self.position(1, self.cur_ball[X], 0)
+            self.position(2, self.cur_ball[X], 0)
+            self.position(3, self.cur_ball[X], 0)
+            self.position(4, self.cur_ball[X], 0)
+
+            # if closest ball is somhow away from the ball
+            # or avoided deadlock to some extent
+            if (self.dist_ball[self.idxs[0]] > 0.13) or (self.avoid_dlck_cnt > 20):
+                offense(self)            
+
+        def midfielder(self, robot_id):
+            goal_dist = helper.distance(self.cur_my[robot_id][X], self.field[X]/2,
+                                         self.cur_my[robot_id][Y], 0)
+            shoot_mul = 1
+            dribble_dist = 0.426
+            v = 5
+            goal_to_ball_unit = helper.unit([self.field[X]/2 - self.cur_ball[X],
+                                                            - self.cur_ball[Y]])
+            delta = [self.cur_ball[X] - self.cur_my[robot_id][X],
+                    self.cur_ball[Y] - self.cur_my[robot_id][Y]]
+
+            if (self.dist_ball[robot_id] < 0.5) and (delta[X] > 0):
+                self.position(robot_id, self.cur_ball[X] + v*delta[X], 
+                                        self.cur_ball[Y] + v*delta[Y])                   
+            else:
+                self.position(robot_id, 
+                    self.cur_ball[X] - dribble_dist*goal_to_ball_unit[X], 
+                    self.cur_ball[Y] - dribble_dist*goal_to_ball_unit[Y])
+
+        def offense(self):
+            midfielder(self, 0)
+            midfielder(self, 1)
+            midfielder(self, 2)
+            midfielder(self, 3)
+            midfielder(self, 4)
+
+        def set_formation(self):
+            # count how many robots is in the goal area
+            goal_area_cnt = self.count_goal_area()
+            # count how many robots is in the penalty area
+            penalty_area_cnt = self.count_penalty_area()
+            self.count_deadlock()
+
+            if goal_area_cnt > 2:
+                avoid_goal_foul(self)
+                self.printConsole('avoid goal foul')
+            elif penalty_area_cnt > 3:
+                avoid_penalty_foul(self)
+                self.printConsole('avoid penalty foul')
+            elif self.dlck_cnt > 15:
+                avoid_deadlock(self)
+                self.printConsole('avoid deadlock')
+                self.avoid_dlck_cnt += 1
+            else:
+                offense(self)
+                self.printConsole('offense')
             
         # initiate empty frame
         received_frame = Frame()
@@ -333,82 +386,63 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[BALL][X])
             #self.printConsole(received_frame.coordinates[BALL][Y])
 ##############################################################################
-            # self.get_coord(received_frame)
-            # # Next state, Reward, Reset
-            # if self.reset:
-            #     self.control_idx += 1
-            #     self.control_idx %= 5
+            self.get_coord(received_frame)
+            self.idxs  = self.get_idxs()
 
-            # # Next state
-            # next_obs = self.pre_processing(self.control_idx)
-            # if self.reset:
-            #     next_state = np.append(next_obs, next_obs) # 2 frames position stack
-            #     self.reset = False
-            # else:
-            #     next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
+            # Reset
+            if (received_frame.reset_reason == SCORE_MYTEAM):
+                self.reset = True
+                self.scr_my += 1
+                self.scr_sum += 1
+                self.printConsole("reset reason: " + \
+                    str(received_frame.reset_reason))                
+            elif (received_frame.reset_reason == SCORE_OPPONENT):
+                self.reset = True
+                self.scr_op += 1
+                self.scr_sum -= 1
+                self.printConsole("reset reason: " + \
+                    str(received_frame.reset_reason))                
+            elif(received_frame.reset_reason != NONE) or \
+                                    (received_frame.reset_reason == None):
+                self.reset = True
+                self.printConsole("reset reason: " + \
+                    str(received_frame.reset_reason))
+            else:
+                self.reset = False
 
-            # # Reward
-            # reward = self.get_reward(received_frame.reset_reason, self.control_idx)
+            set_formation(self) # rule-based formation
+            set_wheel(self, self.wheels.tolist())
+            self.prev_ball = self.cur_ball            
 
-            # # Reset
-            # if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
-            #     self.reset = True
-            #     self.printConsole("reset reason: " + str(received_frame.reset_reason))
-            # else:
-            #     self.reset = False
 
-            # self.state = next_state
-
-            # # get action
-            # action = self.trainers.action(self.state)
-
-            # self.wheels = np.zeros(self.number_of_robots*2)
-            # self.wheels[2*self.control_idx] = self.max_linear_velocity * \
-            #         (action[1]-action[2]+action[3]-action[4])
-            # self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * \
-            #         (action[1]-action[2]-action[3]+action[4])
-
-            # # Send non-control robot to the side of the field
-            # for i in range(self.number_of_robots):
-            #     if i == self.control_idx:
-            #         continue
-            #     else:
-            #         if (i == 0) or (i == 2):
-            #             x = self.cur_my[i][X]
-            #             y = -1.35 
-            #         elif (i == 1) or (i == 3):
-            #             x = self.cur_my[i][X]
-            #             y = 1.35
-            #         else:
-            #             x = -2.1
-            #             y = 0
-            #         self.position(i, x, y)
-
-            # # increment global step counter
-            # # Increase count only when the control robot is active.
-            # if self.cur_my[self.control_idx][ACTIVE]:
-            #     self.train_step += 1
-            #     self.rwd_sum += reward
-            #     self.printConsole('step: ' + str(self.train_step))
-
-            #     set_wheel(self, self.wheels.tolist())
+            # increment global step counter
+            self.test_step += 1
+            self.printConsole('step: ' + str(self.test_step))
+            if (self.test_step % 1200) == 0:
+                self.printConsole('%d seconds' %(time.time()-self.cur_time))
+                self.cur_time = time.time()
 ##############################################################################
-            # plot every 6000 steps (about 5 minuites)
-            # if ((self.train_step % self.stats_steps) == 0) \
-            #                 and (self.train_step < 1992001):
-            #     stats = [self.rwd_sum]
-            #     for i in range(len(stats)):
-            #         U.get_session().run(self.update_ops[i], feed_dict={
-            #             self.summary_placeholders[i]: float(stats[i])
-            #         })
-            #     summary_str = U.get_session().run(self.summary_op)
-            #     self.summary_writer.add_summary(summary_str, self.train_step-6000)
+            # plot every 72000 steps (about 10 minutes)
+            if ((self.test_step % self.stats_steps) == 0) and (self.step_idx < 20):
+                score_ratio = self.scr_my / self.scr_op \
+                                if self.scr_op != 0. else 100
 
-            #     self.rwd_sum = 0
+                stats = [score_ratio, self.scr_sum]
+                for i in range(len(stats)):
+                    U.get_session().run(self.update_ops[i], feed_dict={
+                        self.summary_placeholders[i]: float(stats[i])
+                    })
+                summary_str = U.get_session().run(self.summary_op)
+                self.summary_writer.add_summary(summary_str, 
+                    self.load_step_list[self.step_idx])
 
-            #     # load new model
-            #     print('Loading %s' % self.train_step)
-            #     U.load_state("./save_model/aiwc_maddpg-%s" % self.train_step)
+                self.step_idx += 1
+                self.scr_my, self.scr_op, self.scr_sum = 0,0,0
+
+                # load new model
+                print('Loading %s' % self.load_step_list[self.step_idx])
+                U.load_state('./save_model/aiwc_maddpg-%d' % \
+                                self.load_step_list[self.step_idx])
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
