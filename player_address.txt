@@ -1,5 +1,6 @@
 examples/player_moving_py/player_moving.py
 examples/player_moving_test_py/player_moving.py
+examples/player_RL-moving_rule-based-position_py/player_RL-moving_rule-based-position.py
 
 examples/player_coach_py/player_coach.py
 examples/player_coach_test_py/player_coach.py

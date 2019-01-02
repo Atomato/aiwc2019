@@ -7,12 +7,12 @@
   },
   "team_a": {
     "name": "teamA",
-    "executable": "examples/player_rule-based_py/player_rule-based.py",
+    "executable": "examples/player_RL-moving_rule-based-position_py/player_RL-moving_rule-based-position.py",
     "datapath": "examples/team_a_data"
   },
   "team_b": {
     "name": "teamB",
-    "executable": "examples/player_test_py/player_test.py",
+    "executable": "examples/player_rule-based_py/player_rule-based.py",
     "datapath": "examples/team_b_data"
   },
   "commentator": {

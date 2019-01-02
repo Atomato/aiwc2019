@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 
-# keunhyung 12/31
+# keunhyung 1/2
 # Test moving agent.
-# Test several models.
+# Test top-20 moving models.
+# Test on rule-based-postion.
 
 from __future__ import print_function
 
@@ -86,47 +87,63 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-            self.cur_my = []
-            self.cur_ball = []
 
+            ##################################################################
+            # team info, 5 robots, (x,y,th,active,touch)
+            self.cur_my = [[] for _ in range(self.number_of_robots)]
+
+            self.cur_ball = [] # ball (x,y) position
+            self.prev_ball = [0., 0.] # previous ball (x,y) position
+
+            # distance to the ball
+            self.dist_ball = np.zeros(self.number_of_robots)
+            # index for which robot is close to the ball
+            self.idxs = [i for i in range(self.number_of_robots)]
+
+            self.dlck_cnt = 0 # deadlock count
+            # how many times avoid deadlock function was called
+            self.avoid_dlck_cnt = 0
+
+            self.wheels = np.zeros(self.number_of_robots*2)    
+            ##################################################################
             self.state_dim = 2 # relative ball
             self.history_size = 2 # frame history size
             self.action_dim = 2 # 2                    
             
+            self.state = np.zeros([self.state_dim * self.history_size]) # histories
             self.arglist = Argument()
-            self.state_shape = (self.state_dim * self.history_size,) # state dimension
-            self.act_space = [Discrete(self.action_dim * 2 + 1)]
-            self.trainers = MADDPGAgentTrainer(
-                'agent_moving', self.mlp_model, self.state_shape, self.act_space, 0, self.arglist,
-                local_q_func=False)
 
+            # state dimension
+            self.state_shape = (self.state_dim * self.history_size,) 
+            self.act_space = [Discrete(self.action_dim * 2 + 1)]
+            self.trainers = MADDPGAgentTrainer('agent_moving', self.mlp_model, 
+                                            self.state_shape, self.act_space, 
+                                            0, self.arglist, local_q_func=False)
+            ##################################################################
+            self.load_step_list = np.loadtxt('./test_step_list.txt')
+            self.step_idx = 0 # For self.load_step_list
+        
+            # # Load previous results.
+            if self.arglist.restore:
+                self.printConsole('Loading previous state... %d' % \
+                                                self.load_step_list[self.step_idx])
+                U.load_state('./save_model/aiwc_maddpg-%d' % \
+                                                self.load_step_list[self.step_idx])
+            ##################################################################
             # for tensorboard
             self.summary_placeholders, self.update_ops, self.summary_op = \
                                                             self.setup_summary()
             self.summary_writer = \
                 tf.summary.FileWriter('summary/moving_test', U.get_session().graph)
+            ##################################################################
+            self.test_step = 0
+            self.stats_steps = 72000 # For tensorboard, about 1 hour
 
-            U.initialize()
-            
-            # Load previous results, if necessary
-            if self.arglist.load_dir == "":
-                self.arglist.load_dir = self.arglist.save_dir
-            if self.arglist.restore:
-                print('Loading previous state... %s' % self.arglist.load_dir)
-                U.load_state(self.arglist.load_dir)
+            self.scr_my = 0 # my team score
+            self.scr_op = 0 # op team score
+            self.scr_sum = 0 # score sum
 
-            self.saver = tf.train.Saver(max_to_keep=1100)
-
-            self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            self.train_step = 216000
-            self.wheels = np.zeros(self.number_of_robots*2)
-            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
-                   
-            self.stats_steps = 6000 # for tensorboard
-            self.rwd_sum = 0
-
-            self.done = False
-            self.control_idx = 0
+            self.reset = False
             return
 ##############################################################################        
         try:
@@ -159,11 +176,13 @@ class Component(ApplicationSession):
 
     # make summary operators for tensorboard
     def setup_summary(self):
-        episode_total_reward = tf.Variable(0.)
+        score_ratio = tf.Variable(0.) # my score / op score
+        score_sum = tf.Variable(0.)
 
-        tf.summary.scalar('Total Reward/Episode', episode_total_reward)
+        tf.summary.scalar('Score Ratio', score_ratio)
+        tf.summary.scalar('Score Sum', score_sum)
 
-        summary_vars = [episode_total_reward]
+        summary_vars = [score_ratio, score_sum]
         summary_placeholders = [tf.placeholder(tf.float32) for _ in
                                 range(len(summary_vars))]
         update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in
@@ -313,84 +332,83 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[OP_TEAM][ROBOT_ID][TOUCH])
             #self.printConsole(received_frame.coordinates[BALL][X])
             #self.printConsole(received_frame.coordinates[BALL][Y])
-                                               
-            self.get_coord(received_frame)
 ##############################################################################
-            # Next state, Reward, Reset
-            if self.done:
-                self.control_idx += 1
-                self.control_idx %= 5
+            # self.get_coord(received_frame)
+            # # Next state, Reward, Reset
+            # if self.reset:
+            #     self.control_idx += 1
+            #     self.control_idx %= 5
 
-            # Next state
-            next_obs = self.pre_processing(self.control_idx)
-            if self.done:
-                next_state = np.append(next_obs, next_obs) # 2 frames position stack
-                self.done = False
-            else:
-                next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
+            # # Next state
+            # next_obs = self.pre_processing(self.control_idx)
+            # if self.reset:
+            #     next_state = np.append(next_obs, next_obs) # 2 frames position stack
+            #     self.reset = False
+            # else:
+            #     next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
 
-            # Reward
-            reward = self.get_reward(received_frame.reset_reason, self.control_idx)
+            # # Reward
+            # reward = self.get_reward(received_frame.reset_reason, self.control_idx)
 
-            # Reset
-            if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
-                self.done = True
-                self.printConsole("reset reason: " + str(received_frame.reset_reason))
-            else:
-                self.done = False
+            # # Reset
+            # if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
+            #     self.reset = True
+            #     self.printConsole("reset reason: " + str(received_frame.reset_reason))
+            # else:
+            #     self.reset = False
 
-            self.state = next_state
+            # self.state = next_state
 
-            # get action
-            self.action = self.trainers.action(self.state)
+            # # get action
+            # action = self.trainers.action(self.state)
 
-            self.wheels = np.zeros(self.number_of_robots*2)
-            self.wheels[2*self.control_idx] = self.max_linear_velocity * \
-                    (self.action[1]-self.action[2]+self.action[3]-self.action[4])
-            self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * \
-                    (self.action[1]-self.action[2]-self.action[3]+self.action[4])
+            # self.wheels = np.zeros(self.number_of_robots*2)
+            # self.wheels[2*self.control_idx] = self.max_linear_velocity * \
+            #         (action[1]-action[2]+action[3]-action[4])
+            # self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * \
+            #         (action[1]-action[2]-action[3]+action[4])
 
-            # Send non-control robot to the side of the field
-            for i in range(self.number_of_robots):
-                if i == self.control_idx:
-                    continue
-                else:
-                    if (i == 0) or (i == 2):
-                        x = self.cur_my[i][X]
-                        y = -1.35 
-                    elif (i == 1) or (i == 3):
-                        x = self.cur_my[i][X]
-                        y = 1.35
-                    else:
-                        x = -2.1
-                        y = 0
-                    self.position(i, x, y)
+            # # Send non-control robot to the side of the field
+            # for i in range(self.number_of_robots):
+            #     if i == self.control_idx:
+            #         continue
+            #     else:
+            #         if (i == 0) or (i == 2):
+            #             x = self.cur_my[i][X]
+            #             y = -1.35 
+            #         elif (i == 1) or (i == 3):
+            #             x = self.cur_my[i][X]
+            #             y = 1.35
+            #         else:
+            #             x = -2.1
+            #             y = 0
+            #         self.position(i, x, y)
 
-            # increment global step counter
-            # Increase count only when the control robot is active.
-            if self.cur_my[self.control_idx][ACTIVE]:
-                self.train_step += 1
-                self.rwd_sum += reward
-                self.printConsole('step: ' + str(self.train_step))
+            # # increment global step counter
+            # # Increase count only when the control robot is active.
+            # if self.cur_my[self.control_idx][ACTIVE]:
+            #     self.train_step += 1
+            #     self.rwd_sum += reward
+            #     self.printConsole('step: ' + str(self.train_step))
 
-                set_wheel(self, self.wheels.tolist())
+            #     set_wheel(self, self.wheels.tolist())
 ##############################################################################
             # plot every 6000 steps (about 5 minuites)
-            if ((self.train_step % self.stats_steps) == 0) \
-                            and (self.train_step < 1992001):
-                stats = [self.rwd_sum]
-                for i in range(len(stats)):
-                    U.get_session().run(self.update_ops[i], feed_dict={
-                        self.summary_placeholders[i]: float(stats[i])
-                    })
-                summary_str = U.get_session().run(self.summary_op)
-                self.summary_writer.add_summary(summary_str, self.train_step-6000)
+            # if ((self.train_step % self.stats_steps) == 0) \
+            #                 and (self.train_step < 1992001):
+            #     stats = [self.rwd_sum]
+            #     for i in range(len(stats)):
+            #         U.get_session().run(self.update_ops[i], feed_dict={
+            #             self.summary_placeholders[i]: float(stats[i])
+            #         })
+            #     summary_str = U.get_session().run(self.summary_op)
+            #     self.summary_writer.add_summary(summary_str, self.train_step-6000)
 
-                self.rwd_sum = 0
+            #     self.rwd_sum = 0
 
-                # load new model
-                print('Loading %s' % self.train_step)
-                U.load_state("./save_model/aiwc_maddpg-%s" % self.train_step)
+            #     # load new model
+            #     print('Loading %s' % self.train_step)
+            #     U.load_state("./save_model/aiwc_maddpg-%s" % self.train_step)
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
