@@ -73,22 +73,23 @@ class Component(ApplicationSession):
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
 
-            # my team info, 5 robots, (x,y,th,active,touch)
-            self.cur_my = np.zeros((self.number_of_robots,5)) 
+            ##################################################################
+            # Team info, 5 robots, (x,y,th,active,touch).
+            self.cur_my = [[] for _ in range(self.number_of_robots)] 
 
-            self.cur_ball = np.zeros(2) # ball (x,y) position
-            self.prev_ball = np.zeros(2) # previous ball (x,y) position
+            self.cur_ball = [] # ball (x,y) position
+            self.prev_ball = [0., 0.] # previous ball (x,y) position
 
             # distance to the ball
             self.dist_ball = np.zeros(self.number_of_robots)
             # index for which robot is close to the ball
             self.idxs = [i for i in range(self.number_of_robots)]
 
-            self.wheels = np.zeros(self.number_of_robots*2)
-
             self.dlck_cnt = 0 # deadlock count
             # how many times avoid deadlock function was called
             self.avoid_dlck_cnt = 0 
+
+            self.wheels = np.zeros(self.number_of_robots*2)
             return
 ##############################################################################
         try:
@@ -111,8 +112,8 @@ class Component(ApplicationSession):
             self.printConsole("I am ready for the game!")
 ##############################################################################
     def get_coord(self, received_frame):
-        self.cur_ball = np.array(received_frame.coordinates[BALL])
-        self.cur_my = np.array(received_frame.coordinates[MY_TEAM])
+        self.cur_ball = received_frame.coordinates[BALL]
+        self.cur_my = received_frame.coordinates[MY_TEAM]
 
     def get_idxs(self):
         # sort according to distant to the ball
@@ -300,9 +301,8 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[OP_TEAM][ROBOT_ID][TOUCH])
             #self.printConsole(received_frame.coordinates[BALL][X])
             #self.printConsole(received_frame.coordinates[BALL][Y])
-                                               
-            self.get_coord(received_frame)
 ##############################################################################
+            self.get_coord(received_frame)
             self.idxs  = self.get_idxs()
 
             # count how many robots is in the goal area

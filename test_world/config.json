@@ -2,12 +2,12 @@
   "rule": {
     "game_time": 10000000,
     "deadlock": true,
-    "goal_area_foul": false,
-    "penalty_area_foul": false
+    "goal_area_foul": true,
+    "penalty_area_foul": true
   },
   "team_a": {
     "name": "teamA",
-    "executable": "examples/player_moving_test_py/player_moving.py",
+    "executable": "examples/player_rule-based_py/player_rule-based.py",
     "datapath": "examples/team_a_data"
   },
   "team_b": {
