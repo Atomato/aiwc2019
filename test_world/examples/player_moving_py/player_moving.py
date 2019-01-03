@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 
-# keunhyung 12/27
-# shoot and chase
+# keunhyung 1/4
+# Learn how to move
 # multi experience
+# quarter state aggregation
 
 from __future__ import print_function
 
@@ -86,20 +87,29 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-            self.cur_my_posture = []
-            self.cur_ball = []
+            ##################################################################
+            # team info, 5 robots, (x,y,th,active,touch)
+            self.cur_my = [[] for _ in range(self.number_of_robots)]
 
+            self.cur_ball = [] # ball (x,y) position
+
+            self.wheels = np.zeros(self.number_of_robots*2)
+            ##################################################################
             self.state_dim = 2 # relative ball
             self.history_size = 2 # frame history size
-            self.action_dim = 2 # 2                    
+            self.action_dim = 2 # 2
+
+            self.state = np.zeros([self.state_dim * self.history_size]) # histories
+            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)            
             
             self.arglist = Argument()
+
             self.state_shape = (self.state_dim * self.history_size,) # state dimension
             self.act_space = [Discrete(self.action_dim * 2 + 1)]
             self.trainers = MADDPGAgentTrainer(
                 'agent_moving', self.mlp_model, self.state_shape, self.act_space, 0, self.arglist,
                 local_q_func=False)
-
+            ##################################################################
             # for tensorboard
             self.summary_placeholders, self.update_ops, self.summary_op = \
                                                             self.setup_summary()
@@ -107,7 +117,7 @@ class Component(ApplicationSession):
                 tf.summary.FileWriter('summary/aiwc_maddpg', U.get_session().graph)
 
             U.initialize()
-            
+            ##################################################################
             # Load previous results, if necessary
             if self.arglist.load_dir == "":
                 self.arglist.load_dir = self.arglist.save_dir
@@ -116,12 +126,8 @@ class Component(ApplicationSession):
                 U.load_state(self.arglist.load_dir)
 
             self.saver = tf.train.Saver(max_to_keep=1100)
-
-            self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            # self.train_step = 0
-            self.train_step = 240000
-            self.wheels = np.zeros(self.number_of_robots*2)
-            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
+            ##################################################################
+            self.train_step = 0
                    
             self.save_every_steps = 6000 # save the model every 5 minutes
             self.stats_steps = 6000 # for tensorboard
@@ -175,15 +181,15 @@ class Component(ApplicationSession):
 ##############################################################################    
     def get_coord(self, received_frame):
         self.cur_ball = received_frame.coordinates[BALL]
-        self.cur_my_posture = received_frame.coordinates[MY_TEAM]                
+        self.cur_my = received_frame.coordinates[MY_TEAM]                
 
     def get_reward(self, reset_reason, i):
-        dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my_posture[i][X], 
-            self.cur_ball[Y], self.cur_my_posture[i][Y])
+        dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my[i][X], 
+            self.cur_ball[Y], self.cur_my[i][Y])
         self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
 
         touch_rew = 0
-        if self.cur_my_posture[i][TOUCH]:
+        if self.cur_my[i][TOUCH]:
             touch_rew += 10
 
         rew = dist_rew + touch_rew
@@ -192,8 +198,8 @@ class Component(ApplicationSession):
         return rew      
 
     def pre_processing(self, i):
-        relative_ball = helper.rot_transform(self.cur_my_posture[i][X], 
-            self.cur_my_posture[i][Y], -self.cur_my_posture[i][TH], 
+        relative_ball = helper.rot_transform(self.cur_my[i][X], 
+            self.cur_my[i][Y], -self.cur_my[i][TH], 
             self.cur_ball[X], self.cur_ball[Y])
 
         self.printConsole('Original input: %s' % relative_ball)
@@ -233,12 +239,12 @@ class Component(ApplicationSession):
         ka = 0
         sign = 1
         
-        dx = x - self.cur_my_posture[robot_id][X]
-        dy = y - self.cur_my_posture[robot_id][Y]
+        dx = x - self.cur_my[robot_id][X]
+        dy = y - self.cur_my[robot_id][Y]
         d_e = math.sqrt(math.pow(dx, 2) + math.pow(dy, 2))
         desired_th = (math.pi/2) if (dx == 0 and dy == 0) else math.atan2(dy, dx)
 
-        d_th = desired_th - self.cur_my_posture[robot_id][TH] 
+        d_th = desired_th - self.cur_my[robot_id][TH] 
         while(d_th > math.pi):
             d_th -= 2*math.pi
         while(d_th < -math.pi):
@@ -341,7 +347,7 @@ class Component(ApplicationSession):
             else:
                 self.done = False
 
-            if not self.cur_my_posture[self.control_idx][ACTIVE]:
+            if not self.cur_my[self.control_idx][ACTIVE]:
                 self.printConsole('robot ' + str(self.control_idx) + ' is not active')
             else:
                 self.trainers.experience(self.state, self.action, reward, next_state, self.done, False)
@@ -367,10 +373,10 @@ class Component(ApplicationSession):
                     continue
                 else:
                     if (i == 0) or (i == 2):
-                        x = self.cur_my_posture[i][X]
+                        x = self.cur_my[i][X]
                         y = -1.35 
                     elif (i == 1) or (i == 3):
-                        x = self.cur_my_posture[i][X]
+                        x = self.cur_my[i][X]
                         y = 1.35
                     else:
                         x = -2.1
@@ -387,7 +393,6 @@ class Component(ApplicationSession):
             if (self.train_step % self.save_every_steps) == 0:
                 self.saver.save(U.get_session(), self.arglist.save_dir, 
                     global_step = self.train_step)
-                # U.save_state(self.arglist.save_dir, saver=self.saver)
 
             # plot every 6000 steps (about 5 minuites)
             if (self.train_step % self.stats_steps) == 0:
