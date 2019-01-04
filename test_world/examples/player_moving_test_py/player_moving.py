@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 
-# keunhyung 12/31
+# keunhyung 1/4
 # Test moving agent.
 # Test several models.
+# reward: theta and ball touch
 
 from __future__ import print_function
 
@@ -86,28 +87,38 @@ class Component(ApplicationSession):
             self.max_linear_velocity = info['max_linear_velocity']
             self.number_of_robots = info['number_of_robots']
             self.end_of_frame = False
-            self.cur_my = []
-            self.cur_ball = []
+            ##################################################################
+            # team info, 5 robots, (x,y,th,active,touch)
+            self.cur_my = [[] for _ in range(self.number_of_robots)]
 
+            self.cur_ball = [] # ball (x,y) position
+
+            self.wheels = np.zeros(self.number_of_robots*2)
+            ##################################################################
             self.state_dim = 2 # relative ball
             self.history_size = 2 # frame history size
-            self.action_dim = 2 # 2                    
+            self.action_dim = 2 + 1 # (stay, straight, rotate)
+
+            self.state = np.zeros([self.state_dim * self.history_size]) # histories
+            self.action = np.zeros(self.action_dim)
             
             self.arglist = Argument()
-            self.state_shape = (self.state_dim * self.history_size,) # state dimension
-            self.act_space = [Discrete(self.action_dim * 2 + 1)]
+
+            self.state_shape = (self.state_dim * self.history_size,)
+            self.act_space = [Discrete(self.action_dim)]
             self.trainers = MADDPGAgentTrainer(
                 'agent_moving', self.mlp_model, self.state_shape, self.act_space, 0, self.arglist,
                 local_q_func=False)
-
+            ##################################################################
             # for tensorboard
             self.summary_placeholders, self.update_ops, self.summary_op = \
                                                             self.setup_summary()
             self.summary_writer = \
-                tf.summary.FileWriter('summary/moving_test', U.get_session().graph)
+                tf.summary.FileWriter(
+                    'summary/moving_quarter_test', U.get_session().graph)
 
             U.initialize()
-            
+            ##################################################################
             # Load previous results, if necessary
             if self.arglist.load_dir == "":
                 self.arglist.load_dir = self.arglist.save_dir
@@ -116,12 +127,9 @@ class Component(ApplicationSession):
                 U.load_state(self.arglist.load_dir)
 
             self.saver = tf.train.Saver(max_to_keep=1100)
-
-            self.state = np.zeros([self.state_dim * self.history_size]) # histories
+            ##################################################################
             self.train_step = 216000
-            self.wheels = np.zeros(self.number_of_robots*2)
-            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)
-                   
+
             self.stats_steps = 6000 # for tensorboard
             self.rwd_sum = 0
 
