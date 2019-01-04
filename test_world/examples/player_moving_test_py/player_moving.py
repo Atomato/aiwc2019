@@ -197,7 +197,7 @@ class Component(ApplicationSession):
                     self.cur_my[i][Y], -self.cur_my[i][TH], 
                     self.cur_ball[X], self.cur_ball[Y])
 
-        self.printConsole('Original position %d: %s' % (i, [r, th]))
+        # self.printConsole('Original position %d: %s' % (i, [r, th]))
 
         # If distance to the ball is over 0.5,
         # clip the distance to be 0.5
@@ -225,7 +225,7 @@ class Component(ApplicationSession):
             th = 0
             print('theta error')
 
-        self.printConsole('Final position %d: %s' % (i, [r, th, quadrant]))
+        # self.printConsole('Final position %d: %s' % (i, [r, th, quadrant]))
 
         return np.array([r, th]), quadrant
 ##############################################################################
@@ -331,13 +331,20 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[OP_TEAM][ROBOT_ID][TOUCH])
             #self.printConsole(received_frame.coordinates[BALL][X])
             #self.printConsole(received_frame.coordinates[BALL][Y])
-                                               
-            self.get_coord(received_frame)
 ##############################################################################
+            self.get_coord(received_frame)
             # Next state, Reward, Reset
             if self.reset:
                 self.control_idx += 1
                 self.control_idx %= 5
+
+            # Reset
+            if(received_frame.reset_reason != NONE) or \
+                (received_frame.reset_reason == None):
+                self.reset = True
+                self.printConsole("reset reason: " + str(received_frame.reset_reason))
+            else:
+                self.reset = False
 
             # Next state
             next_obs = self.pre_processing(self.control_idx)
@@ -349,13 +356,6 @@ class Component(ApplicationSession):
 
             # Reward
             reward = self.get_reward(received_frame.reset_reason, self.control_idx)
-
-            # Reset
-            if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
-                self.reset = True
-                self.printConsole("reset reason: " + str(received_frame.reset_reason))
-            else:
-                self.reset = False
 
             self.state = next_state
 
