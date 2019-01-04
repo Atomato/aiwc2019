@@ -128,12 +128,11 @@ class Component(ApplicationSession):
 
             self.saver = tf.train.Saver(max_to_keep=1100)
             ##################################################################
-            self.train_step = 216000
-
+            self.test_step = 6000
             self.stats_steps = 6000 # for tensorboard
             self.rwd_sum = 0
 
-            self.done = False
+            self.reset = False
             self.control_idx = 0
             return
 ##############################################################################        
@@ -325,15 +324,15 @@ class Component(ApplicationSession):
             self.get_coord(received_frame)
 ##############################################################################
             # Next state, Reward, Reset
-            if self.done:
+            if self.reset:
                 self.control_idx += 1
                 self.control_idx %= 5
 
             # Next state
             next_obs = self.pre_processing(self.control_idx)
-            if self.done:
+            if self.reset:
                 next_state = np.append(next_obs, next_obs) # 2 frames position stack
-                self.done = False
+                self.reset = False
             else:
                 next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
 
@@ -342,10 +341,10 @@ class Component(ApplicationSession):
 
             # Reset
             if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
-                self.done = True
+                self.reset = True
                 self.printConsole("reset reason: " + str(received_frame.reset_reason))
             else:
-                self.done = False
+                self.reset = False
 
             self.state = next_state
 
@@ -377,28 +376,28 @@ class Component(ApplicationSession):
             # increment global step counter
             # Increase count only when the control robot is active.
             if self.cur_my[self.control_idx][ACTIVE]:
-                self.train_step += 1
+                self.test_step += 1
                 self.rwd_sum += reward
-                self.printConsole('step: ' + str(self.train_step))
+                self.printConsole('step: ' + str(self.test_step))
 
                 set_wheel(self, self.wheels.tolist())
 ##############################################################################
             # plot every 6000 steps (about 5 minuites)
-            if ((self.train_step % self.stats_steps) == 0) \
-                            and (self.train_step < 1992001):
+            if ((self.test_step % self.stats_steps) == 0) \
+                            and (self.test_step < 1992001):
                 stats = [self.rwd_sum]
                 for i in range(len(stats)):
                     U.get_session().run(self.update_ops[i], feed_dict={
                         self.summary_placeholders[i]: float(stats[i])
                     })
                 summary_str = U.get_session().run(self.summary_op)
-                self.summary_writer.add_summary(summary_str, self.train_step-6000)
+                self.summary_writer.add_summary(summary_str, self.test_step-6000)
 
                 self.rwd_sum = 0
 
                 # load new model
-                print('Loading %s' % self.train_step)
-                U.load_state("./save_model/aiwc_maddpg-%s" % self.train_step)
+                print('Loading %s' % self.test_step)
+                U.load_state("./save_model/aiwc_maddpg-%s" % self.test_step)
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
