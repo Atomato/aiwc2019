@@ -362,11 +362,31 @@ class Component(ApplicationSession):
             # get action
             self.action = self.trainers.action(self.state)
 
-            self.wheels = np.zeros(self.number_of_robots*2)
-            self.wheels[2*self.control_idx] = self.max_linear_velocity * \
-                    (self.action[1]-self.action[2]+self.action[3]-self.action[4])
-            self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * \
-                    (self.action[1]-self.action[2]-self.action[3]+self.action[4])
+            if quadrant == 1:
+                left_wheel = self.max_linear_velocity * \
+                                (self.action[1]-self.action[2])
+                right_wheel = self.max_linear_velocity * \
+                                (self.action[1]+self.action[2])
+            elif quadrant == 2:
+                left_wheel = self.max_linear_velocity * \
+                                (-self.action[1]+self.action[2])
+                right_wheel = self.max_linear_velocity * \
+                                (-self.action[1]-self.action[2])
+            elif quadrant == 3:
+                left_wheel = self.max_linear_velocity * \
+                                (-self.action[1]-self.action[2])
+                right_wheel = self.max_linear_velocity * \
+                                (-self.action[1]+self.action[2])
+            elif quadrant == 4:
+                left_wheel = self.max_linear_velocity * \
+                                (self.action[1]+self.action[2])
+                right_wheel = self.max_linear_velocity * \
+                                (self.action[1]-self.action[2])
+            else:
+                self.printConsole('quadrant error')
+
+            self.wheels[2*self.control_idx] = left_wheel
+            self.wheels[2*self.control_idx + 1] = right_wheel
 
             # Send non-control robot to the side of the field
             for i in range(self.number_of_robots):
@@ -395,7 +415,7 @@ class Component(ApplicationSession):
 ##############################################################################
             # plot every 6000 steps (about 5 minuites)
             if ((self.test_step % self.stats_steps) == 0) \
-                            and (self.test_step < 1992001):
+                            and (self.test_step < 534001):
                 stats = [self.rwd_sum]
                 for i in range(len(stats)):
                     U.get_session().run(self.update_ops[i], feed_dict={
