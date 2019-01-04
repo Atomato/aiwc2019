@@ -334,14 +334,12 @@ class Component(ApplicationSession):
 ##############################################################################
             self.get_coord(received_frame)
             # Next state, Reward, Reset
-            if self.reset:
-                self.control_idx += 1
-                self.control_idx %= 5
-
             # Reset
             if(received_frame.reset_reason != NONE) or \
                 (received_frame.reset_reason == None):
                 self.reset = True
+                self.control_idx += 1
+                self.control_idx %= 5
                 self.printConsole("reset reason: " + str(received_frame.reset_reason))
             else:
                 self.reset = False
@@ -350,7 +348,6 @@ class Component(ApplicationSession):
             next_obs, quadrant = self.pre_processing(self.control_idx)
             if self.reset:
                 next_state = np.append(next_obs, next_obs) # 2 frames position stack
-                self.reset = False
             else:
                 next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
 
