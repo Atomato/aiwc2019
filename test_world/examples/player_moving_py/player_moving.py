@@ -97,15 +97,15 @@ class Component(ApplicationSession):
             ##################################################################
             self.state_dim = 2 # relative ball
             self.history_size = 2 # frame history size
-            self.action_dim = 2 # 2
+            self.action_dim = 2 + 1 # (stay, straight, rotate)
 
             self.state = np.zeros([self.state_dim * self.history_size]) # histories
-            self.action = np.zeros(self.action_dim * 2 + 1) # not np.zeros(2)            
+            self.action = np.zeros(self.action_dim)
             
             self.arglist = Argument()
 
-            self.state_shape = (self.state_dim * self.history_size,) # state dimension
-            self.act_space = [Discrete(self.action_dim * 2 + 1)]
+            self.state_shape = (self.state_dim * self.history_size,)
+            self.act_space = [Discrete(self.action_dim)]
             self.trainers = MADDPGAgentTrainer(
                 'agent_moving', self.mlp_model, self.state_shape, self.act_space, 0, self.arglist,
                 local_q_func=False)
@@ -114,7 +114,7 @@ class Component(ApplicationSession):
             self.summary_placeholders, self.update_ops, self.summary_op = \
                                                             self.setup_summary()
             self.summary_writer = \
-                tf.summary.FileWriter('summary/aiwc_maddpg', U.get_session().graph)
+                tf.summary.FileWriter('summary/moving_quarter', U.get_session().graph)
 
             U.initialize()
             ##################################################################
@@ -133,7 +133,7 @@ class Component(ApplicationSession):
             self.stats_steps = 6000 # for tensorboard
             self.rwd_sum = 0
 
-            self.done = False
+            self.reset = False
             self.control_idx = 0
             return
 ##############################################################################        
@@ -186,7 +186,7 @@ class Component(ApplicationSession):
     def get_reward(self, reset_reason, i):
         dist_rew = -0.1*helper.distance(self.cur_ball[X], self.cur_my[i][X], 
             self.cur_ball[Y], self.cur_my[i][Y])
-        self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
+        # self.printConsole('         distance reward ' + str(i) + ': ' + str(dist_rew))
 
         touch_rew = 0
         if self.cur_my[i][TOUCH]:
@@ -194,30 +194,46 @@ class Component(ApplicationSession):
 
         rew = dist_rew + touch_rew
 
-        self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
+        # self.printConsole('                 reward ' + str(i) + ': ' + str(rew))
         return rew      
 
     def pre_processing(self, i):
-        relative_ball = helper.rot_transform(self.cur_my[i][X], 
-            self.cur_my[i][Y], -self.cur_my[i][TH], 
-            self.cur_ball[X], self.cur_ball[Y])
+        # Radius and theta.
+        r, th = helper.polar_transform(self.cur_my[i][X], 
+                    self.cur_my[i][Y], -self.cur_my[i][TH], 
+                    self.cur_ball[X], self.cur_ball[Y])
 
-        self.printConsole('Original input: %s' % relative_ball)
+        self.printConsole('Original position %d: %s' % (i, [r, th]))
 
-        dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
         # If distance to the ball is over 0.5,
         # clip the distance to be 0.5
-        if dist > 0.5:
-            relative_ball[X] *= 0.5/dist
-            relative_ball[Y] *= 0.5/dist
+        if r > 0.5:
+            r = 0.5
+        # Finally nomalize the distance for the maximum to be 1.
+        r *= 2
 
-        # Finally nomalize the distance for the maximum to be 1
-        relative_ball[X] *= 2
-        relative_ball[Y] *= 2
+        if (0<=th) and (th<90):
+            th /= 90 # Normalize.
+            quadrant = 1
+        elif (90<=th) and (th<=180):
+            th = -th + 180 # Make theta to be 0 to 90.
+            th /= 90 # Normalize.
+            quadrant = 2
+        elif (-180<=th) and (th<-90):
+            th = th + 180 # Make theta to be 0 to 90.
+            th /= 90 # Normalize.
+            quadrant = 3
+        elif (-90<=th) and (th<0):
+            th = -th # Make theta to be 0 to 90.
+            th /= 90 # Normalize.
+            quadrant = 4
+        else:
+            th = 0
+            print('theta error')
 
-        self.printConsole('Final input: %s' % relative_ball)
+        self.printConsole('Final position %d: %s' % (i, [r, th, quadrant]))
 
-        return np.array(relative_ball)
+        return np.array([r, th]), quadrant
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
@@ -321,74 +337,100 @@ class Component(ApplicationSession):
             #self.printConsole(received_frame.coordinates[OP_TEAM][ROBOT_ID][TOUCH])
             #self.printConsole(received_frame.coordinates[BALL][X])
             #self.printConsole(received_frame.coordinates[BALL][Y])
-                                               
-            self.get_coord(received_frame)
 ##############################################################################
-            # Next state, Reward, Reset
-            if self.done:
-                self.control_idx += 1
-                self.control_idx %= 5
+            self.get_coord(received_frame)
+            # Train only when the robot is active.
+            if self.cur_my[self.control_idx][ACTIVE]:
+                # Next state, Reward, Reset
+                # if self.reset:
+                #     self.control_idx += 1
+                #     self.control_idx %= 5
 
-            # Next state
-            next_obs = self.pre_processing(self.control_idx)
-            if self.done:
-                next_state = np.append(next_obs, next_obs) # 2 frames position stack
-                self.done = False
-            else:
-                next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
-
-            # Reward
-            reward = self.get_reward(received_frame.reset_reason, self.control_idx)
-
-            # Reset
-            if(received_frame.reset_reason != NONE) and (received_frame.reset_reason is not None):
-                self.done = True
-                self.printConsole("reset reason: " + str(received_frame.reset_reason))
-            else:
-                self.done = False
-
-            if not self.cur_my[self.control_idx][ACTIVE]:
-                self.printConsole('robot ' + str(self.control_idx) + ' is not active')
-            else:
-                self.trainers.experience(self.state, self.action, reward, next_state, self.done, False)
-
-            self.state = next_state
-
-            # update 
-            self.trainers.preupdate()
-            loss = self.trainers.update([self.trainers], self.train_step)
-
-            # get action
-            self.action = self.trainers.action(self.state)
-
-            self.wheels = np.zeros(self.number_of_robots*2)
-            self.wheels[2*self.control_idx] = self.max_linear_velocity * \
-                    (self.action[1]-self.action[2]+self.action[3]-self.action[4])
-            self.wheels[2*self.control_idx + 1] = self.max_linear_velocity * \
-                    (self.action[1]-self.action[2]-self.action[3]+self.action[4])
-
-            # Send non-control robot to the side of the field
-            for i in range(self.number_of_robots):
-                if i == self.control_idx:
-                    continue
+                # Reset
+                if(received_frame.reset_reason != NONE) or \
+                    (received_frame.reset_reason == None):
+                    self.reset = True
+                    self.printConsole("reset reason: " + str(received_frame.reset_reason))
                 else:
-                    if (i == 0) or (i == 2):
-                        x = self.cur_my[i][X]
-                        y = -1.35 
-                    elif (i == 1) or (i == 3):
-                        x = self.cur_my[i][X]
-                        y = 1.35
+                    self.reset = False
+
+                # Next state
+                next_obs, quadrant = self.pre_processing(self.control_idx)
+                if self.reset:
+                    next_state = np.append(next_obs, next_obs) # 2 frames position stack
+                    self.reset = False
+                else:
+                    next_state = np.append(next_obs, self.state[:-self.state_dim]) # 2 frames position stack
+                self.printConsole('Next state: %s' % next_state)
+
+                # Reward
+                reward = self.get_reward(received_frame.reset_reason, self.control_idx)
+
+                self.trainers.experience(self.state, self.action, reward, 
+                    next_state, self.reset, False)
+
+                self.state = next_state
+
+                # update 
+                self.trainers.preupdate()
+                loss = self.trainers.update([self.trainers], self.train_step)
+
+                # get action
+                self.action = self.trainers.action(self.state)
+                self.printConsole('Original action %s' % self.action)
+
+                if quadrant == 1:
+                    left_wheel = self.max_linear_velocity * \
+                                    (self.action[1]-self.action[2])
+                    right_wheel = self.max_linear_velocity * \
+                                    (self.action[1]+self.action[2])
+                elif quadrant == 2:
+                    left_wheel = self.max_linear_velocity * \
+                                    (-self.action[1]+self.action[2])
+                    right_wheel = self.max_linear_velocity * \
+                                    (-self.action[1]-self.action[2])
+                elif quadrant == 3:
+                    left_wheel = self.max_linear_velocity * \
+                                    (-self.action[1]-self.action[2])
+                    right_wheel = self.max_linear_velocity * \
+                                    (-self.action[1]+self.action[2])
+                elif quadrant == 4:
+                    left_wheel = self.max_linear_velocity * \
+                                    (self.action[1]+self.action[2])
+                    right_wheel = self.max_linear_velocity * \
+                                    (self.action[1]-self.action[2])
+                else:
+                    self.printConsole('quadrant error')
+                self.printConsole('Wheels: %s' % [left_wheel, right_wheel])
+
+                self.wheels[2*self.control_idx] = left_wheel
+                self.wheels[2*self.control_idx + 1] = right_wheel
+
+                # Send non-control robot to the side of the field
+                for i in range(self.number_of_robots):
+                    if i == self.control_idx:
+                        continue
                     else:
-                        x = -2.1
-                        y = 0
-                    self.position(i, x, y)
+                        if (i == 0) or (i == 2):
+                            x = self.cur_my[i][X]
+                            y = -1.35 
+                        elif (i == 1) or (i == 3):
+                            x = self.cur_my[i][X]
+                            y = 1.35
+                        else:
+                            x = -2.1
+                            y = 0
+                        self.position(i, x, y)
 
-            # increment global step counter
-            self.train_step += 1
-            self.rwd_sum += reward
-            self.printConsole('step: ' + str(self.train_step))
+                # Increment global step counter.
+                # Increase count only when the control robot is active.
+                self.train_step += 1
+                self.rwd_sum += reward
+                self.printConsole('step: %d\n' % self.train_step)
 
-            set_wheel(self, self.wheels.tolist())
+                set_wheel(self, self.wheels.tolist())
+            else:
+                self.printConsole('The control robot is not active.')
 ##############################################################################
             if (self.train_step % self.save_every_steps) == 0:
                 self.saver.save(U.get_session(), self.arglist.save_dir, 
@@ -399,8 +441,7 @@ class Component(ApplicationSession):
                 stats = [self.rwd_sum]
                 for i in range(len(stats)):
                     U.get_session().run(self.update_ops[i], feed_dict={
-                        self.summary_placeholders[i]: float(stats[i])
-                    })
+                        self.summary_placeholders[i]: float(stats[i])})
                 summary_str = U.get_session().run(self.summary_op)
                 self.summary_writer.add_summary(summary_str, self.train_step)
 
