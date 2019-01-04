@@ -192,26 +192,42 @@ class Component(ApplicationSession):
         return rew      
 
     def pre_processing(self, i):
-        relative_ball = helper.rot_transform(self.cur_my[i][X], 
-            self.cur_my[i][Y], -self.cur_my[i][TH], 
-            self.cur_ball[X], self.cur_ball[Y])
+        # Radius and theta.
+        r, th = helper.polar_transform(self.cur_my[i][X], 
+                    self.cur_my[i][Y], -self.cur_my[i][TH], 
+                    self.cur_ball[X], self.cur_ball[Y])
 
-        # self.printConsole('Original input: %s' % relative_ball)
+        self.printConsole('Original position %d: %s' % (i, [r, th]))
 
-        dist = helper.distance(relative_ball[X],0,relative_ball[Y],0)
         # If distance to the ball is over 0.5,
         # clip the distance to be 0.5
-        if dist > 0.5:
-            relative_ball[X] *= 0.5/dist
-            relative_ball[Y] *= 0.5/dist
+        if r > 0.5:
+            r = 0.5
+        # Finally nomalize the distance for the maximum to be 1.
+        r *= 2
 
-        # Finally nomalize the distance for the maximum to be 1
-        relative_ball[X] *= 2
-        relative_ball[Y] *= 2
+        if (0<=th) and (th<90):
+            th /= 90 # Normalize.
+            quadrant = 1
+        elif (90<=th) and (th<=180):
+            th = -th + 180 # Make theta to be 0 to 90.
+            th /= 90 # Normalize.
+            quadrant = 2
+        elif (-180<=th) and (th<-90):
+            th = th + 180 # Make theta to be 0 to 90.
+            th /= 90 # Normalize.
+            quadrant = 3
+        elif (-90<=th) and (th<0):
+            th = -th # Make theta to be 0 to 90.
+            th /= 90 # Normalize.
+            quadrant = 4
+        else:
+            th = 0
+            print('theta error')
 
-        # self.printConsole('Final input: %s' % relative_ball)
+        self.printConsole('Final position %d: %s' % (i, [r, th, quadrant]))
 
-        return np.array(relative_ball)
+        return np.array([r, th]), quadrant
 ##############################################################################
     # function for heuristic moving
     def set_wheel_velocity(self, robot_id, left_wheel, right_wheel):
