@@ -120,7 +120,7 @@ class Component(ApplicationSession):
             U.initialize()
             ##################################################################
             # Load previous results
-            print('Loading previous state... %s' % self.arglist.load_dir)
+            print('Loading %s%d' % (self.arglist.load_dir, 6000))
             U.load_state(self.arglist.load_dir + '6000')
             ##################################################################
             self.test_step = 6000
@@ -347,7 +347,7 @@ class Component(ApplicationSession):
                 self.reset = False
 
             # Next state
-            next_obs = self.pre_processing(self.control_idx)
+            next_obs, quadrant = self.pre_processing(self.control_idx)
             if self.reset:
                 next_state = np.append(next_obs, next_obs) # 2 frames position stack
                 self.reset = False

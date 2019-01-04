@@ -2,6 +2,7 @@
 # Maintainer: Chansol Hong (cshong@rit.kaist.ac.kr)
 
 import math
+import numpy as np
 
 def distance(x1, x2, y1, y2):
     return math.sqrt(math.pow(x1 - x2, 2) + math.pow(y1 - y2, 2))
