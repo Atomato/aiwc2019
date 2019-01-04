@@ -121,7 +121,7 @@ class Component(ApplicationSession):
             ##################################################################
             # Load previous results
             print('Loading previous state... %s' % self.arglist.load_dir)
-            U.load_state(self.arglist.load_dir)
+            U.load_state(self.arglist.load_dir + '6000')
             ##################################################################
             self.test_step = 6000
             self.stats_steps = 6000 # for tensorboard
@@ -428,7 +428,7 @@ class Component(ApplicationSession):
 
                 # load new model
                 print('Loading %s' % self.test_step)
-                U.load_state("./save_model/aiwc_maddpg-%s" % self.test_step)
+                U.load_state(self.arglist.load_dir + str(self.test_step))
 ##############################################################################
             if(received_frame.reset_reason == GAME_END):
                 #(virtual finish() in random_walk.cpp)
