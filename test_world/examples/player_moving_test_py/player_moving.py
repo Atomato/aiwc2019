@@ -119,14 +119,9 @@ class Component(ApplicationSession):
 
             U.initialize()
             ##################################################################
-            # Load previous results, if necessary
-            if self.arglist.load_dir == "":
-                self.arglist.load_dir = self.arglist.save_dir
-            if self.arglist.restore:
-                print('Loading previous state... %s' % self.arglist.load_dir)
-                U.load_state(self.arglist.load_dir)
-
-            self.saver = tf.train.Saver(max_to_keep=1100)
+            # Load previous results
+            print('Loading previous state... %s' % self.arglist.load_dir)
+            U.load_state(self.arglist.load_dir)
             ##################################################################
             self.test_step = 6000
             self.stats_steps = 6000 # for tensorboard
